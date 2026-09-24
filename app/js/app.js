@@ -718,13 +718,20 @@
   // ---------------- CSV ----------------
   function toCSV(rows) { return rows.map(r => r.map(v => { const s = String(v == null ? '' : v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\r\n'); }
   function tableCSV(rows) { if (!rows.length) return ''; const cols = Object.keys(rows[0]); return toCSV([cols].concat(rows.map(r => cols.map(c => r[c])))); }
-  function download(name, text) {
-    try {
-      const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' });
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-      toast('Downloading ' + name);
-    } catch (e) { toast('Download is blocked in this viewer. Open the app from its own URL to download.'); }
+  // In the claude.ai viewer, files go through its downloads capability; elsewhere a normal browser download.
+  async function download(name, text) {
+    const data = '\ufeff' + text;
+    if (window.claude && typeof window.claude.use === 'function') {
+      const dl = await window.claude.use('downloads');
+      if (!dl) { toast('Downloads are not available in this view.'); return; }
+      try { await dl.save({ filename: name, data }); toast('Saved ' + name); }
+      catch (e) { if (e && e.code !== 'declined') toast('Could not save ' + name + (e && e.code ? ' (' + e.code + ')' : '') + '.'); }
+      return;
+    }
+    const blob = new Blob([data], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    toast('Downloading ' + name);
   }
   function parseCSV(text) {
     text = text.replace(/^﻿/, '');
