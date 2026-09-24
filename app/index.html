@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Safety Stock Studio</title>
-<meta name="description" content="AI safety-stock optimisation on SAP S/4HANA data: true demand, actual lead times, seasonal reorder points, digital-twin simulation and a backtest against SAP MRP settings.">
+<meta name="description" content="AI safety-stock optimisation on SAP S/4HANA data: true demand, measured lead times, seasonal reorder points, digital-twin simulation and budget optimisation, validated on history.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@87,500;87,600;87,700;87,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -37,9 +37,10 @@
         <h1 id="page-title">Overview</h1>
       </div>
       <div class="controls" id="controls">
-        <div class="seg" role="radiogroup" aria-label="Optimise for" id="seg">
-          <button role="radio" data-preset="sameService" aria-checked="true">Same service, less capital</button>
-          <button role="radio" data-preset="sameInventory" aria-checked="false">Same capital, more service</button>
+        <div class="seg" role="radiogroup" aria-label="Stocking policy" id="seg">
+          <button role="radio" data-preset="lean" aria-checked="false">Lean stock</button>
+          <button role="radio" data-preset="balanced" aria-checked="true">Balanced</button>
+          <button role="radio" data-preset="high" aria-checked="false">High service</button>
           <button role="radio" data-preset="matrix" aria-checked="false">Service targets</button>
           <button role="radio" data-preset="custom" aria-checked="false">Custom budget</button>
         </div>
@@ -60,7 +61,7 @@
             <li data-step="0">Load SAP extract <span>MARA · MARC · MATDOC · VBAP · EKKO/EKBE</span></li>
             <li data-step="1">Rebuild true demand and actual lead times</li>
             <li data-step="2">Forecast and simulate each material × plant</li>
-            <li data-step="3">Replay 52 weeks against SAP MRP</li>
+            <li data-step="3">Validate on 52 weeks of actual orders</li>
           </ol>
           <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
           <p class="loading-note" id="loading-step">Generating sample SAP extract</p>
@@ -74,6 +75,7 @@
       <section class="view" id="view-actions" hidden></section>
       <section class="view" id="view-suppliers" hidden></section>
       <section class="view" id="view-data" hidden></section>
+      <section class="view" id="view-help" hidden></section>
     </main>
 
     <footer class="foot">

@@ -720,35 +720,35 @@
     const parts = [];
     if (r.dead) {
       parts.push(`No customer demand in the last 52 weeks; ${fmtN(r.stock)} ${u} on hand worth ₹${fmtN(r.stockValue)}.`);
-      parts.push(`SAP still holds a safety stock of ${r.sap.ss} and would reorder at ${r.sap.rop}. Set MARC-EISBE and MARC-MINBE to 0 and redeploy or liquidate the stock.`);
+      parts.push(`Hold no safety stock and stop automatic replenishment (current setting: safety stock ${r.sap.ss}, reorder point ${r.sap.rop}). Redeploy or liquidate the stock.`);
       return parts;
     }
     if (r.obsolete) {
-      parts.push(`Material status ${r.MSTAE} in SAP (MARA-MSTAE) marks this part as superseded or blocked for procurement. ${fmtN(r.stock)} ${u} on hand worth ₹${fmtN(r.stockValue)}.`);
-      parts.push(`Hold no safety stock. SAP still plans ${r.sap.ss} safety stock and a reorder point of ${r.sap.rop}; set both to 0 and sell down, return to the supplier or redeploy the stock.`);
+      parts.push(`Material status ${r.MSTAE} (MARA-MSTAE) marks this part as superseded or blocked for procurement. ${fmtN(r.stock)} ${u} on hand worth ₹${fmtN(r.stockValue)}.`);
+      parts.push(`Hold no safety stock (current setting: ${r.sap.ss}, reorder point ${r.sap.rop}). Sell down, return to the supplier or redeploy the stock.`);
       return parts;
     }
     if (r.stop) {
       parts.push(`No customer demand in the last 26 weeks (last sale ${r.sku.lastIssue >= 0 ? Math.round((r.sku.demandDay.length - r.sku.lastIssue) / 7) + ' weeks ago' : 'over a year ago'}). ${fmtN(r.stock)} ${u} on hand worth ₹${fmtN(r.stockValue)}.`);
-      parts.push(`Do not hold safety stock: SAP still plans ${r.sap.ss} safety stock and reorders at ${r.sap.rop}. Set both to 0 and buy only against a firm customer order.`);
+      parts.push(`Hold no safety stock (current setting: ${r.sap.ss}, reorder point ${r.sap.rop}) and buy only against a firm customer order until demand returns.`);
       return parts;
     }
     parts.push(`Class ${r.cls} (${r.abc === 'A' ? 'top 80% of sales value' : r.abc === 'B' ? 'next 15% of sales value' : 'tail 5% of sales value'}), ${PAT_TEXT[r.pattern]}. Fill-rate target ${(r.svc * 100).toFixed(0)}%.`);
     parts.push(`Forecast ${fmtN(r.weeklyFc)} ${u}/week using ${r.fcMethod}, the most accurate of ${r.fcTried.length} models on the last 26 weeks.`);
     const plan = r.sap.plifz, act = r.lt.mean;
-    if (act > plan * 1.2 && act - plan >= 3) parts.push(`${r.supplier.NAME1} actually delivers in ${fmtN(act)} days on average (±${fmtN(r.lt.sd)}), while SAP plans with ${plan} days (MARC-PLIFZ). SAP therefore under-covers the lead time.`);
+    if (act > plan * 1.2 && act - plan >= 3) parts.push(`${r.supplier.NAME1} actually delivers in ${fmtN(act)} days on average (±${fmtN(r.lt.sd)}), measured over ${r.lt.n} purchase orders. The planned delivery time in the material master is ${plan} days, so the AI plans with the real figure and its spread.`);
     else if (act < plan * 0.8 && plan - act >= 3) parts.push(`${r.supplier.NAME1} delivers faster than planned: ${fmtN(act)} days actual vs ${plan} days in MARC-PLIFZ.`);
-    else parts.push(`Lead time from ${r.supplier.NAME1}: ${fmtN(act)} days average (±${fmtN(r.lt.sd)}), in line with the ${plan} days planned in SAP.`);
+    else parts.push(`Lead time from ${r.supplier.NAME1}: ${fmtN(act)} days average (±${fmtN(r.lt.sd)}), in line with the ${plan} days in the material master. The spread still needs cover.`);
     if (r.seasonal) {
       const lo = r.calendar.reduce((a, c) => (c.rop < a.rop ? c : a)), hi = r.calendar.reduce((a, c) => (c.rop > a.rop ? c : a));
-      if (hi.rop > lo.rop) parts.push(`Demand for this material group dips in the monsoon and recovers after it. The reorder point moves with the season, from ${lo.rop} in ${MONTHS[lo.m]} to ${hi.rop} in ${MONTHS[hi.m]}. SAP holds a single static value of ${r.sap.rop}.`);
+      if (hi.rop > lo.rop) parts.push(`Demand for this material group dips in the monsoon and recovers after it. The reorder point moves with the season, from ${lo.rop} in ${MONTHS[lo.m]} to ${hi.rop} in ${MONTHS[hi.m]}.`);
     }
     if (r.outliers.length) parts.push(`${r.outliers.length} one-off bulk order${r.outliers.length > 1 ? 's were' : ' was'} excluded from the variability calculation so it does not inflate safety stock.`);
-    if (r.lostLines > 0 && r.req52 > r.del52) parts.push(`Last 12 months: ${fmtN(r.req52 - r.del52)} ${u} of customer orders could not be supplied (fill rate ${(r.fill52 * 100).toFixed(1)}%). SAP consumption history hides this demand; the AI uses sales orders.`);
+    if (r.lostLines > 0 && r.req52 > r.del52) parts.push(`Last 12 months: ${fmtN(r.req52 - r.del52)} ${u} of customer orders could not be supplied (fill rate ${(r.fill52 * 100).toFixed(1)}%). This lost demand is counted in the forecast, because the AI reads sales orders, not only goods issues.`);
     const wk = r.weeklyFc > 0 ? r.sap.ss / r.weeklyFc : 0;
-    if (r.ssDelta > 0) parts.push(`SAP safety stock of ${r.sap.ss} covers ${fmtN(wk)} weeks of demand, too little for this variability. Raise it to ${r.ai.ss} (+₹${fmtN(r.ssDeltaValue)}).`);
-    else if (r.ssDelta < 0) parts.push(`SAP safety stock of ${r.sap.ss} (${fmtN(wk)} weeks of demand) is more than the target service level needs. Lower it to ${r.ai.ss} and free ₹${fmtN(-r.ssDeltaValue)}.`);
-    else parts.push(`SAP safety stock of ${r.sap.ss} is already right-sized.`);
+    if (r.ssDelta > 0) parts.push(`Recommended safety stock ${r.ai.ss} (current setting ${r.sap.ss}, ${fmtN(wk)} weeks of demand), sized to the fill-rate target for this variability (+₹${fmtN(r.ssDeltaValue)}).`);
+    else if (r.ssDelta < 0) parts.push(`Recommended safety stock ${r.ai.ss} (current setting ${r.sap.ss}, ${fmtN(wk)} weeks of demand) meets the fill-rate target and frees ₹${fmtN(-r.ssDeltaValue)}.`);
+    else parts.push(`The current safety stock of ${r.sap.ss} already matches the recommendation.`);
     return parts;
   }
 
@@ -757,7 +757,7 @@
     const u = r.MEINS;
     if (r.stop) {
       if (r.stock > 0 && r.stockValue > 1000) A.push({ type: 'dead', sev: r.dead || r.obsolete ? 'critical' : 'serious', title: r.obsolete ? 'Superseded part: return, redeploy or liquidate' : r.dead ? 'Dead stock: redeploy, liquidate or scrap' : 'Slow-moving: stop buying, sell down', qty: r.stock, value: r.stockValue, detail: r.obsolete ? `Material status ${r.MSTAE} (superseded). Last sale ${r.daysSinceIssue} days ago.` : `No demand for ${r.dead ? 52 : 26} weeks; last sale ${r.daysSinceIssue >= 999 ? 'over 2 years' : r.daysSinceIssue + ' days'} ago.` });
-      if (r.sap.ss > 0 || r.sap.rop > 0) A.push({ type: 'master', sev: 'serious', title: 'Stop replenishment in SAP', value: r.sap.ss * r.price, detail: `MARC-EISBE ${r.sap.ss} → 0, MARC-MINBE ${r.sap.rop} → 0` });
+      if (r.sap.ss > 0 || r.sap.rop > 0) A.push({ type: 'master', sev: 'serious', title: 'Stop automatic replenishment', value: r.sap.ss * r.price, detail: `MARC-EISBE ${r.sap.ss} → 0, MARC-MINBE ${r.sap.rop} → 0` });
       return A;
     }
     const need = r.ai.max - r.ip;
@@ -776,7 +776,7 @@
       A.push({ type: 'excess', sev: r.slow ? 'serious' : 'warning', title: `${r.slow ? 'Slow-moving' : 'Excess'} stock: ${fmtN(r.excessQty)} ${u} above target`, qty: r.excessQty, value: r.excessValue, detail: `${fmtN(r.coverWeeks)} weeks of cover vs target max of ${r.ai.max}. Pause purchasing${r.siblings.length ? ' or transfer to the other plant' : ''}.` });
     }
     const ssChange = Math.abs(r.ssDelta) >= Math.max(1, 0.2 * Math.max(r.sap.ss, r.ai.ss));
-    if (ssChange) A.push({ type: 'master', sev: r.ssDelta > 0 ? 'warning' : 'good', title: r.ssDelta > 0 ? 'Raise safety stock in SAP' : 'Lower safety stock in SAP', value: Math.abs(r.ssDeltaValue), detail: `MARC-EISBE ${r.sap.ss} → ${r.ai.ss}, MARC-MINBE ${r.sap.rop} → ${r.ai.rop}, MARC-MABST ${r.sap.max} → ${r.ai.max}` });
+    if (ssChange) A.push({ type: 'master', sev: r.ssDelta > 0 ? 'warning' : 'good', title: r.ssDelta > 0 ? 'Raise safety stock' : 'Lower safety stock', value: Math.abs(r.ssDeltaValue), detail: `MARC-EISBE ${r.sap.ss} → ${r.ai.ss}, MARC-MINBE ${r.sap.rop} → ${r.ai.rop}, MARC-MABST ${r.sap.max} → ${r.ai.max}` });
     const plan = r.sap.plifz, act = Math.round(r.lt.mean);
     if (r.lt.n >= 3 && Math.abs(act - plan) >= Math.max(3, 0.2 * plan)) A.push({ type: 'leadtime', sev: act > plan ? 'serious' : 'good', title: 'Correct planned delivery time', value: 0, detail: `MARC-PLIFZ ${plan} → ${act} days (actual average over ${r.lt.n} POs from ${r.supplier.NAME1})` });
     return A;

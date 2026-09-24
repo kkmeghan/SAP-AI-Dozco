@@ -1,12 +1,14 @@
 # AI safety stock for DOZCO: data requirements and outputs
 
-**Use case:** set safety stock, reorder point and maximum stock for each trading material at each location, better than static SAP MRP settings, and give buyers, planners and finance a weekly action list.
+**Use case:** set safety stock, reorder point and maximum stock for each trading material at each location from true demand, measured lead times and the season, and give buyers, planners and finance a weekly action list.
 
 **Pilot scope:** the 500 pilot SKUs at the main branch and one warehouse, with up to 5 years of history, on the on-premise DOZCO platform. Read-only from SAP; outputs go back as a change file for mass maintenance (MM17). There is no automatic write-back.
 
 ---
 
-## 1. Why this beats standard SAP MRP
+## 1. What the AI adds beyond standard SAP MRP
+
+The full explanation of each capability is in [`FEATURES.md`](FEATURES.md).
 
 | Topic | Standard SAP MRP (reorder point planning, MRP type VB) | AI safety stock |
 |---|---|---|
@@ -18,7 +20,7 @@
 | Irregular demand | Treated like regular demand | Demand pattern detected (smooth / erratic / intermittent / lumpy). Croston-type models and Monte Carlo simulation handle lumpy spare-parts demand |
 | One-off project orders | Inflate the consumption average | Detected and capped |
 | Allocation of stock | Each part is set in isolation | One inventory budget spread across all parts so that each rupee of stock goes where it prevents the most lost sales |
-| Proof | None | Backtest: both policies replayed on the last 52 weeks of actual orders |
+| Proof | None | Validation: the policy replayed on the last 52 weeks of actual orders |
 
 ## 2. Tables and fields to extract
 
@@ -67,20 +69,20 @@ Optional later: `MCHB`/`MCH1` (batch aging), `T001L` (storage locations), `EORD`
 3. **Segmentation**: ABC by sales value; XYZ by coefficient of variation of monthly demand (X < 0.2, Y 0.2–0.5, Z > 0.5); demand pattern (Syntetos-Boylan). Superseded parts (MARA-MSTAE) hold no safety stock.
 4. **Forecast**: model competition per part (13- and 52-week moving average, exponential smoothing, damped trend, monsoon-seasonal, Croston-SBA), scored on the last 26 weeks. Reorder points are set month by month from the seasonal profile.
 5. **Lead time**: actual mean and variability per part, blended with the supplier's pooled history when a part has few POs. Compared with `PLIFZ`.
-6. **Digital twin**: 10 years of simulated weekly demand and lead-time scenarios per part, run under about 18 candidate reorder points and under today's SAP settings.
+6. **Digital twin**: 10 years of simulated weekly demand and lead-time scenarios per part, run under about 18 candidate reorder points.
 7. **Optimisation**: an inventory budget is allocated across all parts by marginal value of served demand. Alternatively, service targets are set per ABC/XYZ class and raised to the part's channel-weighted target (third-party / OEM / dealership).
 8. **Order quantity**: economic order quantity respecting `BSTMI` / `BSTRF`.
-9. **Backtest**: SAP settings and the AI policy are replayed on the last 52 weeks of actual orders, with the AI re-calibrated every 8 weeks using only data available at that time.
+9. **Validation**: the AI policy is replayed on the last 52 weeks of actual orders, re-calibrated every 8 weeks using only data available at that time.
 
 ## 4. Results shown to users
 
 | Output | For | Content |
 |---|---|---|
-| Overview | Management | Backtest SAP vs AI, service-vs-capital curve, where SAP MRP falls short (lost demand, lead times, monsoon, misallocation) |
+| Overview | Management | Validated fill rate and stock, data findings (lost demand, lead-time gaps, monsoon, where lost sales concentrate), operating-point curve |
 | Working capital | Finance | Stock today → release (dead, superseded, slow, excess) → AI steady state; holding-cost saving; turns; aging; seasonal reorder levels |
 | Service & stockouts | Sales, MM/SCM head | Fill rate by channel and trend, lost sales by group and part, channel service targets |
 | Recommendations | MM / SCM head, planners | Per material × plant: EISBE, MINBE, MABST, PLIFZ today → recommended, with value impact and fill target |
-| Part detail | Planners, purchase | Plain-language explanation, demand history with stockouts, actual lead times vs plan, lead-time demand distribution, per-part backtest |
+| Part detail | Planners, purchase | Plain-language explanation, demand history with stockouts, actual lead times vs plan, lead-time demand distribution, seasonal reorder calendar, per-part validation |
 | Action center | Purchase, branch managers, warehouse | Order now (stockout risk), stock transfers between plants, reorders, excess to pause, dead and slow-moving stock, master-data corrections |
 | Lead times | Purchase | Supplier scorecard: planned vs actual lead time, variability, on-time rate |
 | SAP change file | SAP team | CSV for MM17 mass change of `MARC-EISBE / MINBE / MABST / PLIFZ`, plus a reorder point per month |
@@ -97,10 +99,10 @@ The business-side SAP table mapping (18 Sep 2026) was reviewed for this use case
 
 ## 6. Results on the sample data (demo)
 
-The demo runs on generated data in SAP layouts (500 materials, 2 plants, 2 years, with a monsoon dip), not on DOZCO records. On that data:
+The demo runs on generated data in SAP layouts (500 materials, 2 plants, 2 years, with a monsoon dip), not on DOZCO records. At the **Balanced** setting, validated on the last 52 weeks of orders:
 
-- **Same fill rate as SAP (86.0%)** needs ₹15.9 Cr of average stock instead of ₹18.4 Cr, about 14% less working capital.
-- **Same stock as SAP** lifts the fill rate to 89.2%.
-- ₹6.1 Cr of stock today is dead, superseded, slow-moving or above the AI maximum. About 350 part-plants have a `PLIFZ` that suppliers do not meet.
+- **90% fill rate** (share of ordered value supplied from stock) with about **₹19 Cr of average stock**, about 5 turns a year.
+- About **₹5.7 Cr** of today's stock is dead, superseded, slow-moving or above the AI maximum.
+- About 350 part-plants have a planned delivery time (`PLIFZ`) that suppliers do not meet; about 160 parts cause 80% of lost sales.
 
-Real results depend on DOZCO's data. The pilot's backtest will measure them the same way.
+Real results depend on DOZCO's data. The pilot will validate them the same way.

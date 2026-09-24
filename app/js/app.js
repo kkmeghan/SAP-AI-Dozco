@@ -8,7 +8,7 @@
 
   const state = {
     T: null, source: 'sample', model: null, bt: null, rec: null, cfg: null, aiRun: null,
-    preset: 'sameService', mult: 1, plant: 'all', tab: 'overview', part: null,
+    preset: 'balanced', mult: 1, plant: 'all', tab: 'overview', part: null,
     channelTargets: Object.assign({}, E.DEFAULT_CHANNEL),
     f: { q: '', cls: 'all', pattern: 'all', dir: 'all', action: 'all' },
     sort: { key: 'absDelta', dir: -1 },
@@ -29,6 +29,7 @@
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     rain: '<path d="M7 15a4 4 0 0 1 .5-8 5.5 5.5 0 0 1 10.5 1.5A3.5 3.5 0 0 1 17.5 15z"/><path d="M8 18l-1 2.5M12 18l-1 2.5M16 18l-1 2.5"/>',
     scale: '<path d="M12 4v16M6 20h12M5 7h14"/><path d="M5 7l-3 6.5a3 3 0 0 0 6 0z"/><path d="M19 7l-3 6.5a3 3 0 0 0 6 0z"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><path d="M12 17h.01"/>',
     download: '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
     upload: '<path d="M12 20V9"/><path d="M7 14l5-5 5 5"/><path d="M5 4h14"/>',
   };
@@ -36,7 +37,7 @@
 
   const VIEWS = [
     { group: 'Insight' },
-    { id: 'overview', label: 'Overview', crumb: 'Safety stock vs SAP MRP', controls: true },
+    { id: 'overview', label: 'Overview', crumb: 'AI safety stock · validated on history', controls: true },
     { id: 'capital', label: 'Working capital', crumb: 'Cash locked in stock and how much the AI releases', controls: true },
     { id: 'service', label: 'Service & stockouts', crumb: 'Fill rate by channel, lost sales and targets', controls: false },
     { group: 'Plan' },
@@ -46,6 +47,8 @@
     { group: 'Evidence' },
     { id: 'suppliers', label: 'Supplier lead times', crumb: 'Planned vs actual delivery', controls: false },
     { id: 'data', label: 'SAP data & method', crumb: 'Tables, fields, method and your own data', controls: false, noPlant: true },
+    { group: 'Help' },
+    { id: 'help', label: 'Feature guide', crumb: 'What the AI does and where to see it', controls: false, noPlant: true },
   ];
 
   // ---------------- formatting ----------------
@@ -66,6 +69,8 @@
   const PATTERN = { smooth: 'Smooth', erratic: 'Erratic', intermittent: 'Intermittent', lumpy: 'Lumpy', none: 'No demand' };
   const GROUPS = { FILT: 'Filters', LUBE: 'Lubricants', GET: 'Ground engaging', UCAR: 'Undercarriage', HYDR: 'Hydraulics', ELEC: 'Electricals', ENGN: 'Engine parts', TRNS: 'Transmission', BRNG: 'Bearings & seals', FAST: 'Fasteners' };
   const MONTHS = E.MONTHS;
+  const PRESET_FILL = { lean: 0.86, balanced: 0.9, high: 0.94 };
+  const PRESET_LABEL = { lean: 'Lean stock', balanced: 'Balanced', high: 'High service', matrix: 'Service targets', custom: 'Custom budget' };
   const SEV_ORDER = { critical: 0, serious: 1, warning: 2, good: 3 };
   const chip = (sev, text) => `<span class="chip chip-${sev}"><span class="dot"></span>${esc(text)}</span>`;
   const deltaCls = (d, goodIfPositive, flat) => (Math.abs(d) <= (flat || 0) ? 'delta-flat' : (d > 0) === goodIfPositive ? 'delta-good' : 'delta-bad');
@@ -105,30 +110,6 @@
       ctx.restore();
     },
   });
-  // frontier annotations: SAP point -> same-service and same-stock arrows
-  Chart.register({
-    id: 'frontierNotes',
-    afterDatasetsDraw(chart, args, o) {
-      if (!o || !o.sap) return;
-      const { ctx, scales: { x, y } } = chart;
-      const sx = x.getPixelForValue(o.sap.x), sy = y.getPixelForValue(o.sap.y);
-      const arrow = (x1, y1, x2, y2, label, color, below) => {
-        ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
-        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
-        const ang = Math.atan2(y2 - y1, x2 - x1);
-        ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - 8 * Math.cos(ang - 0.45), y2 - 8 * Math.sin(ang - 0.45)); ctx.lineTo(x2 - 8 * Math.cos(ang + 0.45), y2 - 8 * Math.sin(ang + 0.45)); ctx.closePath(); ctx.fill();
-        ctx.font = '700 12px ' + Chart.defaults.font.family;
-        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2; const w = ctx.measureText(label).width;
-        ctx.fillStyle = o.bg; ctx.fillRect(mx - w / 2 - 5, my + (below ? 6 : -22), w + 10, 17);
-        ctx.fillStyle = color; ctx.fillText(label, mx - w / 2, my + (below ? 19 : -9));
-      };
-      ctx.save();
-      if (o.left) arrow(sx - 10, sy, x.getPixelForValue(o.left.x) + 8, sy, o.left.label, o.color, true);
-      if (o.up) arrow(sx, sy - 10, sx, y.getPixelForValue(o.up.y) + 8, o.up.label, o.color, false);
-      ctx.restore();
-    },
-  });
-
   function chart(id, config) {
     if (state.charts[id]) { state.charts[id].destroy(); delete state.charts[id]; }
     const el = document.getElementById(id); if (!el) return null;
@@ -179,7 +160,10 @@
   function cfgForPreset() {
     const m = state.model, bt = state.bt;
     if (state.preset === 'matrix') return { mode: 'matrix', channelTargets: state.channelTargets };
-    const mult = state.preset === 'sameService' ? bt.sameService.mult : state.preset === 'sameInventory' ? bt.sameInventory.mult : state.mult;
+    // presets pick a point on the validated service-vs-stock curve by target fill rate
+    const f = bt.frontier, want = PRESET_FILL[state.preset];
+    let mult = state.mult;
+    if (want) { mult = f[f.length - 1].mult; for (let i = 1; i < f.length; i++) if (f[i].fill >= want) { const w = (want - f[i - 1].fill) / ((f[i].fill - f[i - 1].fill) || 1); mult = f[i - 1].mult + Math.max(0, Math.min(1, w)) * (f[i].mult - f[i - 1].mult); break; } if (f[0].fill >= want) mult = f[0].mult; }
     return { mode: 'budget', budget: m.sapTwin.inv * mult, mult };
   }
 
@@ -250,73 +234,69 @@
     $('#plant').hidden = !!v.noPlant;
     $$('.seg button').forEach(b => b.setAttribute('aria-checked', String(b.dataset.preset === state.preset)));
     $$('.view').forEach(x => (x.hidden = x.id !== 'view-' + state.tab));
-    ({ overview: renderOverview, capital: renderCapital, service: renderService, recs: renderRecs, part: renderPart, actions: renderActions, suppliers: renderSuppliers, data: renderData })[state.tab]();
+    ({ overview: renderOverview, capital: renderCapital, service: renderService, recs: renderRecs, part: renderPart, actions: renderActions, suppliers: renderSuppliers, data: renderData, help: renderHelp })[state.tab]();
   }
 
   // ---------------- overview ----------------
   function renderOverview() {
     const el = $('#view-overview');
     const rows = visible();
-    const bt = state.bt, all = state.plant === 'all';
+    const all = state.plant === 'all';
     const agg = btAgg(rows);
-    const sap = all ? bt.sap : agg.sap, ai = all ? state.aiRun : agg.ai;
-    const ssS = bt.sameService, ssI = bt.sameInventory;
-    const invSave = bt.sap.inv - ssS.inv, fillGain = ssI.fill - bt.sap.fill;
-    let release = 0, lost = 0, dem = 0, risk = 0, changed = 0, sapSS = 0, aiSS = 0;
+    const ai = all ? state.aiRun : agg.ai;
+    let release = 0, risk = 0, changed = 0, aiSS = 0, reorders = 0;
     for (const r of rows) {
       release += r.stop ? r.stockValue : r.excessValue;
-      lost += r.lost52Value; dem += r.req52 * r.price; sapSS += r.sap.ss * r.price; aiSS += r.ai.ss * r.price;
+      aiSS += r.ai.ss * r.price;
       if (r.actions.some(a => a.type === 'reorder' && a.sev === 'critical')) risk++;
+      if (r.actions.some(a => a.type === 'reorder')) reorders++;
       if (r.ai.ss !== r.sap.ss || r.ai.rop !== r.sap.rop) changed++;
     }
-    const maxInv = Math.max(bt.sap.inv, ssS.inv);
-    const hb = (label, v, max, cls, txt) => `<div class="hbar"><span>${label}</span><div class="t"><div class="f ${cls}" style="width:${Math.max(2, v / max * 100)}%"></div></div><b>${txt}</b></div>`;
-    const fw = (f) => (f - 0.7) / 0.3;
-
+    const label = PRESET_LABEL[state.preset];
     el.innerHTML = `
       <section class="hero">
         <div>
-          <div class="hero-eyebrow">52-week backtest on actual customer orders · all plants</div>
-          <h2>Same service with <em>${inr(invSave)}</em> less stock, or <em>+${(fillGain * 100).toFixed(1)} pts</em> fill rate on today's stock.</h2>
-          <p>SAP MRP's current settings and the AI policy were replayed day by day against every sales order of the last 52 weeks, with supplier lead times taken from real purchase orders. The AI re-calibrated every 8 weeks and only used data it would have had at the time.</p>
-          <div class="hero-actions"><button class="primary" data-go="actions">Open this week's actions</button><button data-go="capital">Working capital release</button><button data-go="data">How it works</button></div>
+          <div class="hero-eyebrow">${esc(label)} setting · validated on 52 weeks of actual orders · ${all ? 'all plants' : 'plant ' + esc(state.plant)}</div>
+          <h2>Serve <em>${pct(ai.fill)}</em> of customer demand with <em>${inr(ai.inv)}</em> of average stock, set part by part.</h2>
+          <p>Every material × plant gets its own safety stock, reorder point and order quantity from true demand, measured supplier lead times and the monsoon season. The policy was replayed day by day against the last 52 weeks of sales orders, re-calibrating every 8 weeks with only the data available at the time.</p>
+          <div class="hero-actions"><button class="primary" data-go="actions">Open this week's actions</button><button data-go="capital">Working capital release</button><button data-go="help">What the AI can do</button></div>
         </div>
         <div class="hero-stats">
-          <div class="hstat"><div class="hstat-top"><span class="hstat-label">Stock needed for today's ${pct(bt.sap.fill)} fill rate</span><span class="hstat-value">${inr(ssS.inv)}<small>−${pct(invSave / bt.sap.inv, 0)}</small></span></div>
-            ${hb('SAP', bt.sap.inv, maxInv, 'sap', inr(bt.sap.inv))}${hb('AI', ssS.inv, maxInv, 'ai', inr(ssS.inv))}</div>
-          <div class="hstat"><div class="hstat-top"><span class="hstat-label">Fill rate with today's ${inr(bt.sap.inv)} of stock</span><span class="hstat-value">${pct(ssI.fill)}<small>+${(fillGain * 100).toFixed(1)} pts</small></span></div>
-            ${hb('SAP', fw(bt.sap.fill), 1, 'sap', pct(bt.sap.fill))}${hb('AI', fw(ssI.fill), 1, 'ai', pct(ssI.fill))}</div>
-          <div class="hstat"><div class="hstat-top"><span class="hstat-label">Releasable now: excess, slow, dead and superseded stock</span><span class="hstat-value">${inr(release)}</span></div></div>
+          <div class="hstat"><div class="hstat-top"><span class="hstat-label">Fill rate, validated on history</span><span class="hstat-value">${pct(ai.fill)}</span></div>
+            <div class="hbar"><span>Fill</span><div class="t"><div class="f ai" style="width:${Math.max(2, (ai.fill - 0.6) / 0.4 * 100)}%"></div></div><b>${pct(ai.fill)}</b></div></div>
+          <div class="hstat"><div class="hstat-top"><span class="hstat-label">Average stock the policy holds</span><span class="hstat-value">${inr(ai.inv)}</span></div>
+            <div class="hbar"><span>Turns</span><div class="t"><div class="f ai" style="width:${Math.min(100, (ai.del / ai.inv) / 10 * 100)}%"></div></div><b>${(ai.del / ai.inv).toFixed(1)}× / yr</b></div></div>
+          <div class="hstat"><div class="hstat-top"><span class="hstat-label">Releasable now: dead, superseded, slow and excess stock</span><span class="hstat-value">${inr(release)}</span></div></div>
         </div>
       </section>
 
       <div>
-        <div class="panel-head" style="margin-bottom:10px"><div><h3>Where SAP MRP falls short</h3><p>Found in the SAP tables for ${all ? 'all plants' : 'plant ' + esc(state.plant)}.</p></div></div>
-        <div class="gaps">${gapCards(rows).join('')}</div>
+        <div class="panel-head" style="margin-bottom:10px"><div><h3>What the AI found in the data</h3><p>Read from the SAP tables for ${all ? 'all plants' : 'plant ' + esc(state.plant)}, and used in every recommendation.</p></div></div>
+        <div class="gaps">${insightCards(rows).join('')}</div>
       </div>
 
       <div class="kpis">
-        ${kpi('Fill rate · selected policy', pct(ai.fill), `SAP MRP ${pct(sap.fill)} · <span class="${deltaCls(ai.fill - sap.fill, true, 0.003)}">${ai.fill >= sap.fill ? '+' : ''}${((ai.fill - sap.fill) * 100).toFixed(1)} pts</span>`)}
-        ${kpi('Average stock · selected policy', inr(ai.inv), `SAP MRP ${inr(sap.inv)} · <span class="${deltaCls(ai.inv / sap.inv - 1, false, 0.003)}">${ai.inv > sap.inv ? '+' : ''}${((ai.inv / sap.inv - 1) * 100).toFixed(1)}%</span>`)}
-        ${kpi('Safety stock value', inr(aiSS), `SAP MARC-EISBE ${inr(sapSS)}`)}
-        ${kpi('Parts to re-set in SAP', nf(changed), `of ${nf(rows.length)} material × plant`)}
-        ${kpi('Order now', nf(risk), 'parts that run out before a PO can arrive')}
+        ${kpi('Fill rate · validated', pct(ai.fill), `${esc(label)} setting, last 52 weeks`)}
+        ${kpi('Average stock · validated', inr(ai.inv), `${(ai.del / ai.inv).toFixed(1)} turns a year at stock value`)}
+        ${kpi('Safety stock recommended', inr(aiSS), `across ${nf(rows.filter(r => r.ai.ss > 0).length)} parts`)}
+        ${kpi('Parts with new settings', nf(changed), `of ${nf(rows.length)} material × plant`)}
+        ${kpi('Order now', nf(risk), `stockout risk · ${nf(reorders - risk)} more reorders`)}
       </div>
 
       <div class="grid-hero">
         <div class="panel">
-          <div class="panel-head"><div><h3>Service vs working capital</h3><p>Each blue point is the AI at a different stock budget, replayed on the last 52 weeks. SAP's current settings sit below the curve: the arrows show the capital saved at the same service and the service gained at the same capital.</p></div></div>
-          <div class="chart-box tall"><canvas id="c-frontier" role="img" aria-label="Fill rate versus average stock for AI budgets and SAP MRP"></canvas></div>
+          <div class="panel-head"><div><h3>Choose your operating point</h3><p>Each blue point is the AI policy at a different stock budget, replayed on the last 52 weeks of actual orders. Moving right buys service with working capital; the curve shows how much each step costs.</p></div></div>
+          <div class="chart-box tall"><canvas id="c-frontier" role="img" aria-label="Fill rate versus average stock for different AI budgets"></canvas></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div><h3>SAP MRP vs AI by class</h3><p>Selected policy, ${all ? 'all plants' : 'plant ' + esc(state.plant)}. A = top 80% of sales value.</p></div><div class="legend"><span><i class="swatch-sap"></i>SAP MRP</span><span><i class="swatch-ai"></i>AI</span></div></div>
+          <div class="panel-head"><div><h3>Service and stock by class</h3><p>Selected policy, ${all ? 'all plants' : 'plant ' + esc(state.plant)}. A = top 80% of sales value.</p></div></div>
           ${classCompare(rows)}
         </div>
       </div>
 
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-head"><div><h3>ABC × XYZ segmentation</h3><p>Parts per cell and safety stock SAP → AI. XYZ from the coefficient of variation of monthly demand: X &lt; 0.2, Y 0.2–0.5, Z &gt; 0.5.</p></div></div>
+          <div class="panel-head"><div><h3>ABC × XYZ segmentation</h3><p>Parts per cell, recommended safety stock and validated fill rate. XYZ from the coefficient of variation of monthly demand: X &lt; 0.2, Y 0.2–0.5, Z &gt; 0.5.</p></div></div>
           ${abcxyz(rows)}
         </div>
         <div class="panel">
@@ -335,81 +315,75 @@
     return `<svg viewBox="0 0 ${w} ${h + 12}" width="${w}" height="${h + 12}" aria-hidden="true">${vals.map((v, i) => `<rect x="${i * bw + 1}" y="${h - v / max * h}" width="${bw - 2}" height="${v / max * h}" rx="1.5" fill="${hi.includes(i) ? 'var(--serious)' : 'var(--ai)'}" opacity="${hi.includes(i) ? 1 : 0.55}"/>`).join('')}${['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'].map((m, i) => `<text x="${i * bw + bw / 2}" y="${h + 11}" font-size="8" text-anchor="middle" fill="var(--muted)">${m}</text>`).join('')}</svg>`;
   }
 
-  function gapCards(rows) {
+  function insightCards(rows) {
     const lost = rows.reduce((a, r) => a + r.lost52Value, 0);
     const lines = rows.reduce((a, r) => a + r.lostLines, 0);
     const plif = rows.filter(r => !r.stop && r.lt.n >= 3 && r.lt.mean - r.sap.plifz >= Math.max(3, 0.2 * r.sap.plifz));
     const gap = plif.length ? plif.reduce((a, r) => a + (r.lt.mean - r.sap.plifz), 0) / plif.length : 0;
     const si = state.plant === 'all' ? state.seasonIndex : seasonIndex(new Set(rows.map(r => r.key)));
     const monsoon = (si[6] + si[7] + si[8]) / 3 - 1;
-    let sapC = 0, aiC = 0, sapA = 0, aiA = 0;
-    for (const r of rows) { if (r.abc === 'C' || r.stop) { sapC += r.sap.ss * r.price; aiC += r.ai.ss * r.price; } if (r.abc === 'A' && !r.stop) { sapA += r.sap.ss * r.price; aiA += r.ai.ss * r.price; } }
+    const byLost = rows.filter(r => r.lost52Value > 0).sort((a, b) => b.lost52Value - a.lost52Value);
+    let cum = 0, n80 = 0; for (const r of byLost) { if (cum >= 0.8 * lost) break; cum += r.lost52Value; n80++; }
     const card = (sev, icon, big, title, text, src, extra) => `<div class="gap"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><div class="gap-icon ${sev}">${svg(icon)}</div>${extra || ''}</div><div class="gap-big num">${big}</div><h3>${title}</h3><p>${text}</p><div class="src">${src}</div></div>`;
     return [
-      card('critical', 'eyeoff', inr(lost), 'Demand SAP MRP never sees', `${nf(lines)} order lines could not be supplied in full over two years. MRP forecasts from goods issues, so these lost sales never raise the reorder point.`, 'VBAP − LIPS vs MATDOC 601'),
-      card('serious', 'clock', `+${nf(gap, 0)} days`, 'Lead times set too short', `${nf(plif.length)} part-plants take longer to arrive than MARC-PLIFZ says. MRP reorders too late and runs out before the goods arrive.`, 'EKBE-BUDAT − EKKO-BEDAT vs PLIFZ'),
-      card('warning', 'rain', `${monsoon < 0 ? '−' : '+'}${Math.abs(monsoon * 100).toFixed(0)}%`, 'Monsoon dip, static settings', `Demand falls ${Math.abs(monsoon * 100).toFixed(0)}% in Jul–Sep and recovers after. MARC-EISBE and MINBE stay fixed all year, so SAP overbuys into the monsoon and runs short after it.`, 'Demand value by posting month', sparkBars(si, [6, 7, 8])),
-      card('good', 'scale', inr(sapC), 'Safety stock on the wrong parts', `Safety stock SAP holds on C-class and non-moving parts; the AI needs ${inr(aiC)} there. SAP sets weeks of cover, not risk. The AI sizes every part on its own volatility and real lead time: A-class safety stock ${inr(sapA)} → ${inr(aiA)}, with reorder points corrected for actual supplier delays.`, 'MARC-EISBE × MBEW price'),
+      card('critical', 'eyeoff', inr(lost), 'Demand that never became a sale', `${nf(lines)} order lines were not supplied in full. The AI counts this lost demand back into the forecast instead of learning from shipments alone.`, 'VBAP ordered − LIPS delivered'),
+      card('serious', 'clock', `+${nf(gap, 0)} days`, 'Suppliers slower than planned', `${nf(plif.length)} part-plants arrive later than the planned delivery time in the material master. The AI plans with measured lead times and their spread.`, 'EKBE-BUDAT − EKKO-BEDAT'),
+      card('warning', 'rain', `${monsoon < 0 ? '−' : '+'}${Math.abs(monsoon * 100).toFixed(0)}%`, 'Monsoon season', `Demand drops ${Math.abs(monsoon * 100).toFixed(0)}% in Jul–Sep and surges after. The AI learns the profile per material group and moves each reorder point month by month.`, 'Demand value by posting month', sparkBars(si, [6, 7, 8])),
+      card('good', 'scale', nf(n80), 'Parts behind 80% of lost sales', `Out of ${nf(rows.length)} material × plant. Stock budget goes first to these parts, where each rupee prevents the most lost sales.`, 'Pareto of unfilled order value'),
     ];
   }
 
   function classCompare(rows) {
     const g = {};
     for (const r of rows) {
-      const x = g[r.abc] || (g[r.abc] = { sap: { req: 0, del: 0, inv: 0 }, ai: { req: 0, del: 0, inv: 0 }, n: 0 }); x.n++;
-      for (const s of ['sap', 'ai']) { x[s].req += r.bt[s].req * r.price; x[s].del += r.bt[s].del * r.price; x[s].inv += r.bt[s].avgInv; }
+      const x = g[r.abc] || (g[r.abc] = { req: 0, del: 0, inv: 0, lost: 0, n: 0, tgt: 0, tw: 0 }); x.n++;
+      x.req += r.bt.ai.req * r.price; x.del += r.bt.ai.del * r.price; x.inv += r.bt.ai.avgInv;
+      if (!r.stop) { x.tgt += r.svc * r.annualValue; x.tw += r.annualValue; }
     }
-    const maxInv = Math.max(...Object.values(g).flatMap(x => [x.sap.inv, x.ai.inv]), 1);
+    const maxInv = Math.max(...Object.values(g).map(x => x.inv), 1);
+    const maxLost = Math.max(...Object.values(g).map(x => x.req - x.del), 1);
     const w = (f) => Math.max(1, (f - 0.6) / 0.4 * 100);
     const block = (k) => {
       const x = g[k]; if (!x) return '';
-      const fs = x.sap.req ? x.sap.del / x.sap.req : 1, fa = x.ai.req ? x.ai.del / x.ai.req : 1;
+      const f = x.req ? x.del / x.req : 1;
       return `<div class="vs cls-block">
         <div class="eyebrow">Class ${k} · ${nf(x.n)} parts</div>
-        <div class="vs-row"><span>Fill rate · SAP</span><div class="vs-track"><div class="vs-fill sap" style="width:${w(fs)}%"></div></div><span class="num r">${pct(fs)}</span></div>
-        <div class="vs-row"><span>Fill rate · AI</span><div class="vs-track"><div class="vs-fill ai" style="width:${w(fa)}%"></div></div><span class="num r">${pct(fa)}</span></div>
-        <div class="vs-row"><span>Avg stock · SAP</span><div class="vs-track"><div class="vs-fill sap" style="width:${x.sap.inv / maxInv * 100}%"></div></div><span class="num r">${inr(x.sap.inv)}</span></div>
-        <div class="vs-row"><span>Avg stock · AI</span><div class="vs-track"><div class="vs-fill ai" style="width:${x.ai.inv / maxInv * 100}%"></div></div><span class="num r">${inr(x.ai.inv)}</span></div>
+        <div class="vs-row"><span>Fill rate</span><div class="vs-track"><div class="vs-fill ai" style="width:${w(f)}%"></div></div><span class="num r">${pct(f)}</span></div>
+        <div class="vs-row"><span>Lost sales</span><div class="vs-track"><div class="vs-fill sap" style="width:${Math.min(100, (x.req - x.del) / (maxLost || 1) * 100)}%;background:var(--critical);opacity:.7"></div></div><span class="num r">${inr(x.req - x.del)}</span></div>
+        <div class="vs-row"><span>Average stock</span><div class="vs-track"><div class="vs-fill ai" style="width:${x.inv / maxInv * 100}%;opacity:.55"></div></div><span class="num r">${inr(x.inv)}</span></div>
       </div>`;
     };
-    return block('A') + block('B') + block('C') + '<p class="note">Fill-rate bars start at 60%.</p>';
+    return block('A') + block('B') + block('C') + '<p class="note">Validated on the last 52 weeks of actual orders. Fill-rate bars start at 60%.</p>';
   }
 
   function abcxyz(rows) {
     const cell = {};
-    for (const r of rows) { const k = r.dead ? 'dead' : r.abc + r.xyz; const c = cell[k] || (cell[k] = { n: 0, sap: 0, ai: 0 }); c.n++; c.sap += r.sap.ss * r.price; c.ai += r.ai.ss * r.price; }
+    for (const r of rows) { const k = r.dead ? 'dead' : r.abc + r.xyz; const c = cell[k] || (cell[k] = { n: 0, ai: 0, req: 0, del: 0 }); c.n++; c.ai += r.ai.ss * r.price; c.req += r.bt.ai.req * r.price; c.del += r.bt.ai.del * r.price; }
     const max = Math.max(...Object.entries(cell).filter(([k]) => k !== 'dead').map(([, c]) => c.n), 1);
     const td = (k) => {
       const c = cell[k]; if (!c) return '<td><div class="cell" style="background:var(--surface-2)"><b class="muted">–</b></div></td>';
-      const d = c.ai - c.sap;
-      return `<td><div class="cell" style="background:rgba(42,120,214,${(0.06 + 0.36 * c.n / max).toFixed(2)})"><b class="num">${nf(c.n)}</b><span class="num">${inr(c.sap)} → ${inr(c.ai)}</span><span class="num ${d > 0 ? 'up' : 'down'}">${d > 0 ? '+' : ''}${inr(d)}</span></div></td>`;
+      return `<td><div class="cell" style="background:rgba(42,120,214,${(0.06 + 0.36 * c.n / max).toFixed(2)})"><b class="num">${nf(c.n)}</b><span class="num">safety stock ${inr(c.ai)}</span><span class="num">fill rate ${c.req ? pct(c.del / c.req, 0) : '–'}</span></div></td>`;
     };
     const dc = cell.dead;
     return `<div class="heat"><table><thead><tr><th></th><th>X · stable</th><th>Y · fluctuating</th><th>Z · erratic</th></tr></thead><tbody>
       ${['A', 'B', 'C'].map(a => `<tr><th style="font-size:14px;color:var(--ink)">${a}</th>${td(a + 'X')}${td(a + 'Y')}${td(a + 'Z')}</tr>`).join('')}
-      </tbody></table></div>${dc ? `<p class="note" style="margin-top:8px">Plus ${nf(dc.n)} parts with no demand in 52 weeks: safety stock ${inr(dc.sap)} → ${inr(dc.ai)}.</p>` : ''}`;
+      </tbody></table></div>${dc ? `<p class="note" style="margin-top:8px">Plus ${nf(dc.n)} parts with no demand in 52 weeks: no safety stock, listed for release.</p>` : ''}`;
   }
 
   function drawFrontier() {
     const c = colors(), bt = state.bt, cr = (x) => x / 1e7;
     const pts = bt.frontier.map(f => ({ x: cr(f.inv), y: f.fill * 100, mult: f.mult }));
     const sel = { x: cr(state.aiRun.inv), y: state.aiRun.fill * 100 };
-    const sapPt = { x: cr(bt.sap.inv), y: bt.sap.fill * 100 };
     chart('c-frontier', {
       type: 'scatter',
       data: { datasets: [
-        { label: 'AI at different budgets', data: pts, showLine: true, borderColor: c.ai, backgroundColor: c.ai, borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, tension: 0.3, fill: false },
-        { label: 'Selected AI policy', data: [sel], borderColor: c.ai, backgroundColor: c.surface, borderWidth: 3, pointRadius: 8, pointHoverRadius: 9 },
+        { label: 'AI at different stock budgets', data: pts, showLine: true, borderColor: c.ai, backgroundColor: c.ai, borderWidth: 2.5, pointRadius: 4, pointHoverRadius: 6, tension: 0.3 },
+        { label: 'Selected: ' + PRESET_LABEL[state.preset], data: [sel], borderColor: c.ai, backgroundColor: c.surface, borderWidth: 3, pointRadius: 9, pointHoverRadius: 10 },
         { label: 'Service targets by class & channel', data: [{ x: cr(bt.matrix.inv), y: bt.matrix.fill * 100 }], backgroundColor: c.orange, borderColor: c.surface, borderWidth: 2, pointStyle: 'triangle', pointRadius: 8 },
-        { label: 'SAP MRP today', data: [sapPt], backgroundColor: c.sap, borderColor: c.surface, borderWidth: 2, pointStyle: 'rectRot', pointRadius: 10, pointHoverRadius: 11 },
       ] },
       options: baseOpts({
         scales: { x: axis('Average stock value', { ticks: { color: c.muted, callback: v => '₹' + v + ' Cr' } }), y: axis('Fill rate (% of ordered value)', { ticks: { color: c.muted, callback: v => v + '%' } }) },
-        plugins: {
-          legend: legend(),
-          tooltip: Object.assign(tooltip(), { callbacks: { label: (ctx) => `${ctx.dataset.label}: fill ${ctx.parsed.y.toFixed(1)}%, stock ₹${ctx.parsed.x.toFixed(2)} Cr` + (ctx.raw.mult ? ` (budget ${Math.round(ctx.raw.mult * 100)}% of SAP)` : '') } }),
-          frontierNotes: { sap: sapPt, color: c.goodInk, bg: c.surface, left: { x: cr(bt.sameService.inv), label: `−${inr(bt.sap.inv - bt.sameService.inv)}` }, up: { y: bt.sameInventory.fill * 100, label: `+${((bt.sameInventory.fill - bt.sap.fill) * 100).toFixed(1)} pts` } },
-        },
+        plugins: { legend: legend(), tooltip: Object.assign(tooltip(), { callbacks: { label: (ctx) => `${ctx.dataset.label}: fill ${ctx.parsed.y.toFixed(1)}%, stock ₹${ctx.parsed.x.toFixed(2)} Cr` } }) },
       }),
     });
   }
@@ -438,22 +412,21 @@
       if (r.stop) { if (r.dead || r.obsolete) deadObs += r.stockValue; else slow += r.stockValue; } else excess += r.excessValue;
       sold += r.bt.ai.del * r.price;
     }
-    const soldSap = rows.reduce((a, r) => a + r.bt.sap.del * r.price, 0);
     const kept = current - deadObs - slow - excess;
     const rebalance = agg.ai.inv - kept;
-    const saving = (agg.sap.inv - agg.ai.inv) * hold;
-    const turnsS = soldSap / agg.sap.inv, turnsA = sold / agg.ai.inv;
+    const saving = (current - agg.ai.inv) * hold;
+    const turnsA = sold / agg.ai.inv, turnsNow = sold / (current || 1);
     el.innerHTML = `
       <div class="kpis">
         ${kpi('Stock value today', inr(current), `${nf(rows.filter(r => r.stock > 0).length)} parts on hand (MARD × MBEW)`)}
         ${kpi('Releasable now', inr(deadObs + slow + excess), `${inr(deadObs)} dead or superseded · ${inr(slow)} slow · ${inr(excess)} excess`)}
-        ${kpi('Average stock · AI policy', inr(agg.ai.inv), `SAP MRP ${inr(agg.sap.inv)} · <span class="${deltaCls(agg.ai.inv - agg.sap.inv, false)}">${agg.ai.inv > agg.sap.inv ? '+' : '−'}${inr(Math.abs(agg.ai.inv - agg.sap.inv))}</span>`)}
-        ${kpi('Holding cost per year', `<span class="${deltaCls(saving, true)}">${saving >= 0 ? '−' : '+'}${inr(Math.abs(saving))}</span>`, `at ${pct(hold, 0)} carrying cost on the change in average stock`)}
-        ${kpi('Inventory turns', `${turnsA.toFixed(1)}×`, `SAP MRP ${turnsS.toFixed(1)}× (backtest, at stock value)`)}
+        ${kpi('Average stock · AI policy', inr(agg.ai.inv), `validated on 52 weeks · today ${inr(current)} on hand`)}
+        ${kpi('Holding cost saving per year', `<span class="${deltaCls(saving, true)}">${inr(Math.abs(saving))}</span>`, `${saving >= 0 ? 'lower' : 'higher'} than on today's stock, at ${pct(hold, 0)} carrying cost`)}
+        ${kpi('Inventory turns', `${turnsA.toFixed(1)}×`, `per year at AI stock level · ${turnsNow.toFixed(1)}× on today's stock`)}
       </div>
       <div class="grid-wide">
         <div class="panel">
-          <div class="panel-head"><div><h3>From today's stock to the AI steady state</h3><p>Release the stock the AI would not hold, then rebalance: some parts need more stock and others less. The last bar is the average stock of the selected AI policy in the backtest.</p></div></div>
+          <div class="panel-head"><div><h3>From today's stock to the AI steady state</h3><p>Release the stock the AI would not hold, then rebalance: some parts need more stock and others less. The last bar is the average stock of the selected AI policy, validated on 52 weeks of actual orders.</p></div></div>
           <div class="chart-box tall"><canvas id="c-waterfall" role="img" aria-label="Waterfall from current stock to AI average stock"></canvas></div>
         </div>
         <div class="panel">
@@ -463,12 +436,12 @@
       </div>
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-head"><div><h3>Average stock by material group</h3><p>Backtest average stock under SAP MRP settings vs the AI policy.</p></div></div>
-          <div class="chart-box tall"><canvas id="c-cat" role="img" aria-label="Average stock by material group, SAP versus AI"></canvas></div>
+          <div class="panel-head"><div><h3>Stock by material group</h3><p>Stock value today next to the average stock the AI policy holds (validated on 52 weeks).</p></div></div>
+          <div class="chart-box tall"><canvas id="c-cat" role="img" aria-label="Stock today and AI average stock by material group"></canvas></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div><h3>Seasonal reorder levels</h3><p>Total value of the reorder points, month by month. The AI lowers them into the monsoon (orange) and raises them for the post-monsoon surge; SAP's MARC-MINBE is one number all year.</p></div></div>
-          <div class="chart-box tall"><canvas id="c-season" role="img" aria-label="Reorder level value by month, AI versus SAP"></canvas></div>
+          <div class="panel-head"><div><h3>Seasonal reorder levels</h3><p>Total value of the reorder points, month by month. The AI lowers them into the monsoon (orange) and raises them for the post-monsoon surge.</p></div></div>
+          <div class="chart-box tall"><canvas id="c-season" role="img" aria-label="Reorder level value by month"></canvas></div>
         </div>
       </div>
       <div class="panel">
@@ -498,13 +471,13 @@
       options: baseOpts({ plugins: { legend: { display: false }, tooltip: Object.assign(tooltip(), { callbacks: { label: (ctx) => inr(ctx.parsed.y * 1e5) } }) }, scales: { x: axis('Days since last sale', { grid: { display: false } }), y: axis('₹ lakh', { beginAtZero: true, ticks: { color: c.muted, callback: v => '₹' + v + ' L' } }) } }),
     });
     const g = {};
-    for (const r of rows) { const x = g[r.MATKL] || (g[r.MATKL] = { sap: 0, ai: 0 }); x.sap += r.bt.sap.avgInv; x.ai += r.bt.ai.avgInv; }
+    for (const r of rows) { const x = g[r.MATKL] || (g[r.MATKL] = { sap: 0, ai: 0 }); x.sap += r.stockValue; x.ai += r.bt.ai.avgInv; }
     const keys = Object.keys(g).sort((a, b) => g[b].sap - g[a].sap);
     chart('c-cat', {
       type: 'bar',
       data: { labels: keys.map(k => GROUPS[k] || k), datasets: [
-        { label: 'SAP MRP', data: keys.map(k => g[k].sap / 1e5), backgroundColor: c.sap, borderRadius: 4, barPercentage: 0.85, categoryPercentage: 0.7 },
-        { label: 'AI policy', data: keys.map(k => g[k].ai / 1e5), backgroundColor: c.ai, borderRadius: 4, barPercentage: 0.85, categoryPercentage: 0.7 },
+        { label: 'Stock today', data: keys.map(k => g[k].sap / 1e5), backgroundColor: c.sap, borderRadius: 4, barPercentage: 0.85, categoryPercentage: 0.7 },
+        { label: 'AI average stock', data: keys.map(k => g[k].ai / 1e5), backgroundColor: c.ai, borderRadius: 4, barPercentage: 0.85, categoryPercentage: 0.7 },
       ] },
       options: baseOpts({ indexAxis: 'y', scales: { x: axis('₹ lakh', { ticks: { color: c.muted, maxRotation: 0, maxTicksLimit: 6, callback: v => '₹' + v + ' L' } }), y: axis('', { grid: { display: false } }) }, plugins: { legend: legend(), tooltip: Object.assign(tooltip(), { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${inr(ctx.parsed.x * 1e5)}` } }) } }),
     });
@@ -513,7 +486,6 @@
     chart('c-season', {
       type: 'bar',
       data: { labels: cal.map(m => MONTHS[m]), datasets: [
-        { type: 'line', label: 'SAP MINBE (static)', data: cal.map(() => rows.reduce((a, r) => a + r.sap.rop * r.price, 0) / 1e5), borderColor: c.sap, borderDash: [6, 4], borderWidth: 2, pointRadius: 0 },
         { label: 'AI reorder level', data: cal.map((m, k) => act.reduce((a, r) => a + r.calendar[k].rop * r.price, 0) / 1e5), backgroundColor: cal.map(m => (m >= 6 && m <= 8 ? c.serious : c.ai)), borderRadius: 4, barPercentage: 0.75 },
       ] },
       options: baseOpts({ scales: { x: axis('', { grid: { display: false } }), y: axis('₹ lakh', { beginAtZero: false, grace: '8%', ticks: { color: c.muted, callback: v => '₹' + v + ' L' } }) }, plugins: { legend: legend(), tooltip: Object.assign(tooltip(), { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${inr(ctx.parsed.y * 1e5)}` } }) } }),
@@ -538,7 +510,7 @@
         ${kpi('Fill rate, last 12 months', pct(1 - lostTot / totReq), 'actual: delivered ÷ ordered value (LIPS ÷ VBAP)')}
         ${kpi('Sales lost to stockouts', inr(lostTot), 'last 12 months, at stock value')}
         ${kpi('Order lines short-supplied', nf(rows.reduce((a, r) => a + r.lostLines, 0)), 'two years of sales order lines')}
-        ${kpi('Fill rate · AI policy (backtest)', pct(agg.ai.fill), `SAP MRP settings ${pct(agg.sap.fill)} · selected policy`)}
+        ${kpi('Fill rate · AI policy', pct(agg.ai.fill), `validated on 52 weeks · ${esc(PRESET_LABEL[state.preset])} setting`)}
       </div>
       <div class="panel" style="background:var(--surface-2)">
         <div class="panel-head" style="margin-bottom:12px"><div><h3>Service by sales channel</h3><p>Actual fill rate by distribution channel (VBAK-VTWEG) over the last 12 months. Set the fill-rate target agreed for each channel; a part's target becomes the higher of its class target and its channel-weighted target.</p></div><button class="btn btn-primary" id="apply-ch">Apply channel targets</button></div>
@@ -562,15 +534,15 @@
       </div>
       <div class="panel">
         <div class="panel-head"><div><h3>Parts losing the most sales</h3><p>Last 12 months, with what the AI changes. Click for the explanation.</p></div></div>
-        <div class="table-wrap scroll" style="max-height:520px"><table><thead><tr><th>Material</th><th>Description</th><th>Plant</th><th>Class</th><th class="r">Lost</th><th class="r">Fill 12m</th><th class="r">Lead time SAP → actual</th><th class="r">Safety stock SAP → AI</th><th class="r">Reorder pt SAP → AI</th><th class="r">Backtest fill SAP → AI</th></tr></thead><tbody>
-          ${rows.filter(r => r.lost52Value > 0).sort((a, b) => b.lost52Value - a.lost52Value).slice(0, 30).map(r => `<tr class="clickable" data-key="${esc(r.key)}"><td class="mono">${esc(r.MATNR)}</td><td class="desc">${esc(r.MAKTX)}</td><td class="mono">${esc(r.WERKS)}</td><td><span class="cls">${esc(r.cls)}</span></td><td class="r num"><b>${inr(r.lost52Value)}</b></td><td class="r num">${pct(r.fill52)}</td><td class="r num">${r.sap.plifz}<span class="arrow-to">→</span>${nf(r.lt.mean, 0)} d</td><td class="r num">${nf(r.sap.ss)}<span class="arrow-to">→</span><b>${nf(r.ai.ss)}</b></td><td class="r num">${nf(r.sap.rop)}<span class="arrow-to">→</span><b>${nf(r.ai.rop)}</b></td><td class="r num">${pct(r.bt.sap.fill, 0)}<span class="arrow-to">→</span><b>${pct(r.bt.ai.fill, 0)}</b></td></tr>`).join('')}
+        <div class="table-wrap scroll" style="max-height:520px"><table><thead><tr><th>Material</th><th>Description</th><th>Plant</th><th>Class</th><th class="r">Lost</th><th class="r">Fill 12m</th><th class="r">Lead time planned → actual</th><th class="r">Safety stock current → AI</th><th class="r">Reorder pt current → AI</th><th class="r">AI fill, validated</th></tr></thead><tbody>
+          ${rows.filter(r => r.lost52Value > 0).sort((a, b) => b.lost52Value - a.lost52Value).slice(0, 30).map(r => `<tr class="clickable" data-key="${esc(r.key)}"><td class="mono">${esc(r.MATNR)}</td><td class="desc">${esc(r.MAKTX)}</td><td class="mono">${esc(r.WERKS)}</td><td><span class="cls">${esc(r.cls)}</span></td><td class="r num"><b>${inr(r.lost52Value)}</b></td><td class="r num">${pct(r.fill52)}</td><td class="r num">${r.sap.plifz}<span class="arrow-to">→</span>${nf(r.lt.mean, 0)} d</td><td class="r num">${nf(r.sap.ss)}<span class="arrow-to">→</span><b>${nf(r.ai.ss)}</b></td><td class="r num">${nf(r.sap.rop)}<span class="arrow-to">→</span><b>${nf(r.ai.rop)}</b></td><td class="r num"><b>${pct(r.bt.ai.fill, 0)}</b></td></tr>`).join('')}
         </tbody></table></div>
       </div>`;
     bindRows(el);
     $('#apply-ch').addEventListener('click', () => {
       for (const k of ['10', '20', '30']) { const v = +$('#ct-' + k).value; if (v >= 50 && v < 100) state.channelTargets[k] = v / 100; }
       state.preset = 'matrix'; applyPreset();
-      toast(`Service targets applied. Backtest fill rate ${pct(state.aiRun.fill)} with ${inr(state.aiRun.inv)} average stock.`);
+      toast(`Service targets applied. Validated fill rate ${pct(state.aiRun.fill)} with ${inr(state.aiRun.inv)} average stock.`);
       buildNav(); render();
     });
     const c = colors();
@@ -614,7 +586,7 @@
     const el = $('#view-recs');
     if (!el.dataset.built) {
       el.innerHTML = `<div class="panel">
-        <div class="panel-head"><div><h3>Safety stock, reorder point and max stock per material and plant</h3><p>Today's SAP MRP settings next to the AI recommendation for the selected policy. Click a row for the full explanation.</p></div>
+        <div class="panel-head"><div><h3>Safety stock, reorder point and max stock per material and plant</h3><p>AI recommendation for the selected policy, next to the current values in the material master. Click a row for the full explanation.</p></div>
           <button class="btn btn-primary" id="dl-change">${svg('download')}SAP change file for MM17</button></div>
         <div class="filters">
           <input type="search" id="f-q" placeholder="Search material, description, supplier" aria-label="Search">
@@ -671,7 +643,7 @@
     const u = r.MEINS === 'L' ? 'L' : 'units';
     const idx = all.indexOf(r);
     const opts = all.slice().sort((a, b) => b.annualValue - a.annualValue).map(x => `<option value="${esc(x.MATNR + ' · ' + x.WERKS + ' · ' + x.MAKTX)}"></option>`).join('');
-    const btS = r.bt.sap, btA = r.bt.ai;
+    const btA = r.bt.ai;
     const chTot = Object.values(r.channel).reduce((a, b) => a + b, 0) || 1;
     el.innerHTML = `
       <div class="panel">
@@ -693,7 +665,7 @@
         <div class="panel">
           <div class="panel-head"><div><h3>Recommendation</h3><p>Change these MRP fields in SAP (MM02, or mass change with MM17).</p></div></div>
           <div class="bigdelta"><span class="eyebrow">Safety stock</span><span class="from num">${nf(r.sap.ss)}</span><span class="arrow-to">→</span><span class="to num">${nf(r.ai.ss)}</span><span class="muted">${u}${r.ssDelta ? ` · ${r.ssDelta > 0 ? '+' : ''}${inr(r.ssDeltaValue)}` : ''}</span></div>
-          <div class="table-wrap" style="margin-top:12px"><table class="fields"><thead><tr><th>SAP field</th><th>Meaning</th><th class="r">Today</th><th class="r">AI</th></tr></thead><tbody>
+          <div class="table-wrap" style="margin-top:12px"><table class="fields"><thead><tr><th>SAP field</th><th>Meaning</th><th class="r">Current</th><th class="r">AI</th></tr></thead><tbody>
             <tr><td>MARC-EISBE</td><td>Safety stock</td><td class="r num">${nf(r.sap.ss)}</td><td class="r num"><b>${nf(r.ai.ss)}</b></td></tr>
             <tr><td>MARC-MINBE</td><td>Reorder point${r.seasonal ? ' (this month)' : ''}</td><td class="r num">${nf(r.sap.rop)}</td><td class="r num"><b>${nf(r.ai.rop)}</b></td></tr>
             <tr><td>MARC-MABST</td><td>Maximum stock level</td><td class="r num">${nf(r.sap.max)}</td><td class="r num"><b>${nf(r.ai.max)}</b></td></tr>
@@ -702,7 +674,7 @@
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${r.actions.length ? r.actions.map(a => chip(a.sev, a.title)).join('') : '<span class="muted">No action needed.</span>'}</div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div><h3>Why</h3><p>Written from this part's SAP history.</p></div></div>
+          <div class="panel-head"><div><h3>Why</h3><p>Written from this part's own history.</p></div></div>
           <ul class="why">${r.explain.map(x => `<li><span>${esc(x)}</span></li>`).join('')}</ul>
           <dl class="kv" style="margin-top:16px">
             <dt>Stock on hand</dt><dd class="num">${nf(r.stock)} ${u} (${inr(r.stockValue)})${isFinite(r.coverWeeks) ? ', ' + nf(r.coverWeeks) + ' weeks of cover' : ''}</dd>
@@ -720,12 +692,12 @@
       </div>
       <div class="grid-2">
         <div class="panel">
-          <div class="panel-head"><div><h3>Reorder point, next 12 months</h3><p>${r.seasonal ? 'The AI lowers the reorder point into the monsoon and raises it for the post-monsoon surge.' : 'No seasonal pattern for this part: one reorder point all year.'} SAP keeps MARC-MINBE fixed.</p></div></div>
-          <div class="chart-box short"><canvas id="c-cal" role="img" aria-label="Reorder point by month, AI versus SAP"></canvas></div>
+          <div class="panel-head"><div><h3>Reorder point, next 12 months</h3><p>${r.seasonal ? 'The AI lowers the reorder point into the monsoon and raises it for the post-monsoon surge.' : 'No seasonal pattern for this part: one reorder point all year.'}</p></div></div>
+          <div class="chart-box short"><canvas id="c-cal" role="img" aria-label="Reorder point by month"></canvas></div>
         </div>
         <div class="panel">
           <div class="panel-head"><div><h3>Actual supplier lead times</h3><p>PO date (EKKO-BEDAT) to goods receipt (EKBE-BUDAT), ${nf(r.lt.n)} POs.</p></div></div>
-          <div class="chart-box short"><canvas id="c-lt" role="img" aria-label="Histogram of actual lead times with SAP planned time"></canvas></div>
+          <div class="chart-box short"><canvas id="c-lt" role="img" aria-label="Histogram of actual lead times with planned time"></canvas></div>
         </div>
       </div>
       <div class="grid-3">
@@ -738,13 +710,13 @@
           <div class="chart-box short"><canvas id="c-curve" role="img" aria-label="Fill rate versus average stock for candidate reorder points"></canvas></div>
         </div>
         <div class="panel">
-          <div class="panel-head"><div><h3>Backtest for this part</h3><p>Last 52 weeks of actual orders.</p></div></div>
-          <div class="table-wrap"><table><thead><tr><th></th><th class="r">SAP</th><th class="r">AI</th></tr></thead><tbody>
-            <tr><td>Fill rate</td><td class="r num">${pct(btS.fill)}</td><td class="r num"><b>${pct(btA.fill)}</b></td></tr>
-            <tr><td>Avg stock</td><td class="r num">${inr(btS.avgInv)}</td><td class="r num"><b>${inr(btA.avgInv)}</b></td></tr>
-            <tr><td>Stockout days</td><td class="r num">${nf(btS.soDays)}</td><td class="r num"><b>${nf(btA.soDays)}</b></td></tr>
-            <tr><td>POs placed</td><td class="r num">${nf(btS.orders)}</td><td class="r num"><b>${nf(btA.orders)}</b></td></tr>
-            <tr><td>Lost sales</td><td class="r num">${inr(btS.lostValue)}</td><td class="r num"><b>${inr(btA.lostValue)}</b></td></tr>
+          <div class="panel-head"><div><h3>Validated on history</h3><p>This part's policy replayed on the last 52 weeks of actual orders.</p></div></div>
+          <div class="table-wrap"><table><tbody>
+            <tr><td>Fill rate</td><td class="r num"><b>${pct(btA.fill)}</b></td></tr>
+            <tr><td>Average stock</td><td class="r num"><b>${inr(btA.avgInv)}</b></td></tr>
+            <tr><td>Days with a shortage</td><td class="r num"><b>${nf(btA.soDays)}</b></td></tr>
+            <tr><td>Purchase orders placed</td><td class="r num"><b>${nf(btA.orders)}</b></td></tr>
+            <tr><td>Sales not supplied</td><td class="r num"><b>${inr(btA.lostValue)}</b></td></tr>
           </tbody></table></div>
           ${r.fcTried.length ? `<div class="eyebrow" style="margin:14px 0 6px">Forecast model competition</div><div class="table-wrap"><table><tbody>${r.fcTried.map((m, i) => `<tr><td>${esc(m.name)}</td><td class="r num">${nf(m.rmse, 2)}</td><td>${i === 0 ? chip('good', 'Selected') : ''}</td></tr>`).join('')}</tbody></table></div>` : ''}
         </div>
@@ -778,7 +750,6 @@
     chart('c-cal', {
       type: 'bar',
       data: { labels: r.calendar.map(x => MONTHS[x.m]), datasets: [
-        { type: 'line', label: 'SAP MARC-MINBE', data: r.calendar.map(() => r.sap.rop), borderColor: c.sap, borderDash: [6, 4], borderWidth: 2, pointRadius: 0 },
         { label: 'AI reorder point', data: r.calendar.map(x => x.rop), backgroundColor: r.calendar.map(x => (x.m >= 6 && x.m <= 8 ? c.serious : c.ai)), borderRadius: 4, barPercentage: 0.7 },
       ] },
       options: baseOpts({ scales: { x: axis('', { grid: { display: false } }), y: axis(r.MEINS === 'L' ? 'Litres' : 'Units', { beginAtZero: true }) } }),
@@ -793,17 +764,17 @@
       chart('c-lt', {
         type: 'bar',
         data: { labels: bins.map(b => (bw > 1 ? `${b}–${b + bw - 1}` : String(b))), datasets: [{ label: 'Purchase orders', data: counts, backgroundColor: c.ai, borderRadius: 3, barPercentage: 0.9, categoryPercentage: 1 }] },
-        options: baseOpts({ plugins: { legend: { display: false }, tooltip: tooltip(), vlines: { lines: [{ x: pos(r.sap.plifz + 0.5), color: c.sap, label: `SAP plan ${r.sap.plifz} d`, dash: [4, 3] }, { x: pos(r.lt.mean + 0.5), color: c.ink, label: `Actual avg ${nf(r.lt.mean, 0)} d` }] } }, scales: { x: axis('Days', { grid: { display: false }, ticks: { color: c.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }), y: axis('POs', { beginAtZero: true, ticks: { precision: 0, color: c.muted } }) } }),
+        options: baseOpts({ plugins: { legend: { display: false }, tooltip: tooltip(), vlines: { lines: [{ x: pos(r.sap.plifz + 0.5), color: c.sap, label: `Planned ${r.sap.plifz} d`, dash: [4, 3] }, { x: pos(r.lt.mean + 0.5), color: c.ink, label: `Actual avg ${nf(r.lt.mean, 0)} d` }] } }, scales: { x: axis('Days', { grid: { display: false }, ticks: { color: c.muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }), y: axis('POs', { beginAtZero: true, ticks: { precision: 0, color: c.muted } }) } }),
       });
     } else $('#c-lt').closest('.chart-box').innerHTML = '<p class="muted">No purchase orders in the history.</p>';
     if (pol.ltd && pol.ltd.sorted.length && !r.stop) {
-      const d = pol.ltd.sorted; const hi = Math.max(d[d.length - 1], r.ai.rop, r.sap.rop) || 1;
+      const d = pol.ltd.sorted; const hi = Math.max(d[d.length - 1], r.ai.rop) || 1;
       const nb = 24, bw = hi / nb; const counts = new Array(nb + 1).fill(0);
       d.forEach(v => counts[Math.min(nb, Math.floor(v / bw))]++);
       chart('c-ltd', {
         type: 'bar',
         data: { labels: counts.map((_, i) => nf(Math.round(i * bw * 10) / 10)), datasets: [{ label: 'Share of scenarios', data: counts.map(x => +(x / d.length * 100).toFixed(1)), backgroundColor: c.aiSoft, borderColor: c.ai, borderWidth: 1, barPercentage: 1, categoryPercentage: 1 }] },
-        options: baseOpts({ plugins: { legend: { display: false }, tooltip: Object.assign(tooltip(), { callbacks: { title: (it) => `Demand ≈ ${it[0].label}`, label: (ctx) => `${ctx.parsed.y}% of scenarios` } }), vlines: { lines: [{ x: r.sap.rop / bw - 0.5, color: c.sap, label: `SAP ${nf(r.sap.rop)}`, dash: [4, 3] }, { x: r.ai.rop / bw - 0.5, color: c.ai, textColor: c.ink, label: `AI ${nf(r.ai.rop)}` }] } }, scales: { x: axis(r.MEINS === 'L' ? 'Litres during lead time' : 'Units during lead time', { grid: { display: false }, ticks: { color: c.muted, maxTicksLimit: 7, maxRotation: 0 } }), y: axis('% of scenarios', { beginAtZero: true }) } }),
+        options: baseOpts({ plugins: { legend: { display: false }, tooltip: Object.assign(tooltip(), { callbacks: { title: (it) => `Demand ≈ ${it[0].label}`, label: (ctx) => `${ctx.parsed.y}% of scenarios` } }), vlines: { lines: [{ x: pol.ltd.mean / bw - 0.5, color: c.sap, label: `Average ${nf(pol.ltd.mean)}`, dash: [4, 3] }, { x: r.ai.rop / bw - 0.5, color: c.ai, textColor: c.ink, label: `Reorder point ${nf(r.ai.rop)}` }] } }, scales: { x: axis(r.MEINS === 'L' ? 'Litres during lead time' : 'Units during lead time', { grid: { display: false }, ticks: { color: c.muted, maxTicksLimit: 7, maxRotation: 0 } }), y: axis('% of scenarios', { beginAtZero: true }) } }),
       });
     } else $('#c-ltd').closest('.chart-box').innerHTML = '<p class="muted">Not replenished, so there is nothing to simulate.</p>';
     if (!r.stop && r.curve.length > 1) {
@@ -814,7 +785,6 @@
         data: { datasets: [
           { label: 'Candidates', data: pts, showLine: true, borderColor: c.ai, backgroundColor: c.ai, borderWidth: 2, pointRadius: 3, tension: 0.2 },
           { label: 'AI choice', data: [{ x: cur.inv / 1e5, y: cur.fill * 100, R: cur.rop }], backgroundColor: c.surface, borderColor: c.ai, borderWidth: 3, pointRadius: 7 },
-          { label: 'SAP', data: [{ x: r.sapTwin.inv / 1e5, y: r.sapTwin.fill * 100, R: r.sap.rop }], backgroundColor: c.sap, borderColor: c.surface, borderWidth: 2, pointStyle: 'rectRot', pointRadius: 8 },
         ] },
         options: baseOpts({ scales: { x: axis('Average stock (₹ lakh)', { ticks: { color: c.muted, callback: v => '₹' + v + ' L' } }), y: axis('Fill rate %', { ticks: { color: c.muted, callback: v => v + '%' } }) }, plugins: { legend: legend(), tooltip: Object.assign(tooltip(), { callbacks: { label: (ctx) => `${ctx.dataset.label}: reorder point ${ctx.raw.R}, fill ${ctx.parsed.y.toFixed(1)}%, stock ₹${ctx.parsed.x.toFixed(1)} L` } }) } }),
       });
@@ -829,7 +799,7 @@
     { id: 'excess', title: 'Excess stock: pause purchasing', test: a => a.type === 'excess', sev: 'serious', c: 'var(--serious)', note: 'Stock above the AI maximum. Stop open requisitions and let it sell down, or transfer.' },
     { id: 'dead', title: 'Dead, slow-moving and superseded stock', test: a => a.type === 'dead', sev: 'critical', c: 'var(--critical)', note: 'No demand for 26–52 weeks, or superseded (MARA-MSTAE). Redeploy, return to the supplier, liquidate or scrap, with Finance sign-off.' },
     { id: 'master', title: 'Update safety stock and reorder point in SAP', test: a => a.type === 'master', sev: 'warning', c: 'var(--ai)', note: 'Mass change with MM17 using the downloadable change file.' },
-    { id: 'leadtime', title: 'Correct planned delivery time (MARC-PLIFZ)', test: a => a.type === 'leadtime', sev: 'serious', c: 'var(--serious)', note: 'SAP plans with a lead time suppliers do not achieve (or beat).' },
+    { id: 'leadtime', title: 'Correct planned delivery time (MARC-PLIFZ)', test: a => a.type === 'leadtime', sev: 'serious', c: 'var(--serious)', note: 'The planned delivery time in the material master differs from what suppliers actually achieve.' },
   ];
 
   function renderActions() {
@@ -888,12 +858,12 @@
     const w = (arr, f) => arr.reduce((a, x) => a + f(x) * x.pos, 0) / (arr.reduce((a, x) => a + x.pos, 0) || 1);
     el.innerHTML = `
       <div class="kpis">
-        ${kpi('Import suppliers', `${nf(w(imp, x => x.mean), 0)} d`, `actual average · SAP plans ${nf(w(imp, x => x.plan), 0)} d`)}
-        ${kpi('Domestic suppliers', `${nf(w(dom, x => x.mean), 0)} d`, `actual average · SAP plans ${nf(w(dom, x => x.plan), 0)} d`)}
+        ${kpi('Import suppliers', `${nf(w(imp, x => x.mean), 0)} d`, `actual average · planned ${nf(w(imp, x => x.plan), 0)} d`)}
+        ${kpi('Domestic suppliers', `${nf(w(dom, x => x.mean), 0)} d`, `actual average · planned ${nf(w(dom, x => x.plan), 0)} d`)}
         ${kpi('On time (within 2 days of EKET-EINDT)', pct(w(rows, x => x.onTime || 0), 0), 'share of purchase orders')}
         ${kpi('Suppliers', nf(rows.length), `${nf(rows.reduce((a, x) => a + x.pos, 0))} POs received`)}
       </div>
-      <div class="panel"><div class="panel-head"><div><h3>Planned vs actual lead time by supplier</h3><p>SAP plans with MARC-PLIFZ. Actual = goods receipt (EKBE-BUDAT) minus PO date (EKKO-BEDAT). Wide variation needs more safety stock even when the average is right.</p></div><div class="legend"><span><i class="swatch-sap"></i>SAP planned</span><span><i class="swatch-ai"></i>Actual average</span></div></div>
+      <div class="panel"><div class="panel-head"><div><h3>Planned vs actual lead time by supplier</h3><p>Planned = MARC-PLIFZ in the material master. Actual = goods receipt (EKBE-BUDAT) minus PO date (EKKO-BEDAT). Wide variation needs more safety stock even when the average is right.</p></div><div class="legend"><span><i class="swatch-sap"></i>Planned (PLIFZ)</span><span><i class="swatch-ai"></i>Actual average</span></div></div>
         <div class="chart-box" style="height:${Math.max(300, rows.length * 30 + 60)}px"><canvas id="c-sup" role="img" aria-label="Planned versus actual lead time by supplier"></canvas></div></div>
       <div class="panel"><div class="panel-head"><div><h3>Supplier scorecard</h3><p>Two years of purchase orders for the parts in scope.</p></div></div>
       <div class="table-wrap"><table><thead><tr><th>Supplier</th><th>Country</th><th class="r">Parts</th><th class="r">POs</th><th class="r">PO value</th><th class="r">Planned d</th><th class="r">Actual d</th><th class="r">Gap d</th><th class="r">Variability ±d</th><th class="r">On time</th><th class="r">Avg days late</th></tr></thead><tbody>
@@ -903,7 +873,7 @@
     chart('c-sup', {
       type: 'bar',
       data: { labels: rows.map(x => x.name), datasets: [
-        { type: 'scatter', label: 'SAP planned', data: rows.map(x => ({ x: x.plan, y: x.name })), backgroundColor: c.sap, borderColor: c.surface, borderWidth: 2, pointRadius: 7, pointStyle: 'rectRot' },
+        { type: 'scatter', label: 'Planned (PLIFZ)', data: rows.map(x => ({ x: x.plan, y: x.name })), backgroundColor: c.sap, borderColor: c.surface, borderWidth: 2, pointRadius: 7, pointStyle: 'rectRot' },
         { type: 'scatter', label: 'Actual average', data: rows.map(x => ({ x: x.mean, y: x.name })), backgroundColor: c.ai, borderColor: c.surface, borderWidth: 2, pointRadius: 7 },
         { label: 'Gap', data: rows.map(x => [Math.min(x.plan, x.mean), Math.max(x.plan, x.mean)]), backgroundColor: c.line, barPercentage: 0.28, categoryPercentage: 1, borderRadius: 3 },
       ] },
@@ -916,16 +886,16 @@
     const el = $('#view-data');
     const T = state.T;
     el.innerHTML = `
-      <div class="panel"><div class="panel-head"><div><h3>How the AI sets safety stock</h3><p>What changes compared with standard SAP MRP (static MARC-EISBE and reorder-point planning, MRP type VB).</p></div></div>
+      <div class="panel"><div class="panel-head"><div><h3>How the AI sets safety stock</h3><p>Eight steps, run for every material × plant on each refresh. The Feature guide explains each capability.</p></div></div>
         <ol class="steps">
-          <li><span class="n">01 · Demand</span><b>True demand, not consumption</b><span>Sales order lines (VBAP) include demand that could not be delivered. SAP forecasts from goods issues (MATDOC), which hides stockouts. Stock transfers (301/311/641) are kept apart from real consumption.</span></li>
+          <li><span class="n">01 · Demand</span><b>True demand, not consumption</b><span>Sales order lines (VBAP) include demand that could not be delivered, which goods issues alone would hide. Stock transfers (301/311/641) are kept apart from real consumption.</span></li>
           <li><span class="n">02 · Cleansing</span><b>Remove one-off bulk orders</b><span>Project orders beyond Q3 + 3×IQR are capped, so a single order does not inflate safety stock for years.</span></li>
           <li><span class="n">03 · Segmentation</span><b>ABC × XYZ and demand pattern</b><span>ABC by sales value. XYZ by monthly coefficient of variation (X &lt; 0.2, Y 0.2–0.5, Z &gt; 0.5). Syntetos-Boylan classes: smooth, erratic, intermittent, lumpy.</span></li>
           <li><span class="n">04 · Forecast</span><b>Model competition per part</b><span>Moving averages, exponential smoothing, damped trend, monsoon-seasonal and Croston-SBA models compete on the last 26 weeks. Lowest error wins.</span></li>
           <li><span class="n">05 · Lead time</span><b>Actual supplier performance</b><span>PO date to goods receipt (EKKO/EKBE), blended with the supplier's history when a part has few POs. On-time rate against EKET-EINDT.</span></li>
-          <li><span class="n">06 · Digital twin</span><b>Simulate each part</b><span>10 years of weekly demand and lead-time scenarios are replayed under about 18 candidate reorder points and under SAP's current settings.</span></li>
+          <li><span class="n">06 · Digital twin</span><b>Simulate each part</b><span>10 years of weekly demand and lead-time scenarios are replayed under about 18 candidate reorder points to map service against stock.</span></li>
           <li><span class="n">07 · Optimise</span><b>Spend the stock budget where it earns most</b><span>Marginal analysis across all parts, or service targets by class and sales channel. Reorder points follow the monsoon month by month.</span></li>
-          <li><span class="n">08 · Prove</span><b>Backtest against SAP</b><span>Both policies are replayed on the actual orders of the last 52 weeks, re-calibrated every 8 weeks using only past data.</span></li>
+          <li><span class="n">08 · Prove</span><b>Validate on history</b><span>The policy is replayed on the actual orders of the last 52 weeks, re-calibrated every 8 weeks using only past data.</span></li>
         </ol>
       </div>
       <div class="panel"><div class="panel-head"><div><h3>Expert review: what this use case adopts</h3><p>From the SAP table mapping prepared on the business side (18 Sep 2026), filtered to what matters for safety stock.</p></div></div>
@@ -988,6 +958,51 @@
     ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
     drop.addEventListener('drop', e => loadFiles(e.dataTransfer.files));
     const rs = $('#reset-sample'); if (rs) rs.addEventListener('click', () => { state.part = null; state.tab = 'overview'; runPipeline(SAP.generate(), 'sample'); });
+  }
+
+  // ---------------- feature guide ----------------
+  const FEATURES = [
+    { t: 'True demand, including lost sales', v: 'service', d: 'Reads sales order lines against deliveries, so demand that could not be supplied still counts in the forecast and the safety stock.', data: 'VBAK, VBAP, LIPS', mrp: 'Consumption-based planning learns from goods issues and consumption totals; an order that was not delivered never enters the history.' },
+    { t: 'Measured lead times and their spread', v: 'suppliers', d: 'Learns the real PO-to-receipt time for every supplier and part, with its variability, and blends in the supplier history when a part has few orders.', data: 'EKKO, EKPO, EKET, EKBE', mrp: 'Uses one planned delivery time per material or info record (PLIFZ / APLFZ); lead-time variability is not part of the safety-stock calculation.' },
+    { t: 'Safety stock sized to a fill-rate target', v: 'part', d: 'Sizes safety stock so a stated share of ordered quantity is supplied from stock, from forecast error and lead-time variability together.', data: 'VBAP, EKBE, MBEW', mrp: 'Safety stock is a fixed quantity, a range of coverage, or a normal-distribution formula on forecast error with a fixed lead time.' },
+    { t: 'Demand-pattern detection and model competition', v: 'overview', d: 'Classifies each part as smooth, erratic, intermittent or lumpy, then lets 5 forecasting models compete on its own recent history; Croston-SBA handles spare-parts demand with many zero weeks.', data: 'VBAP', mrp: 'Forecast models cover constant, trend and seasonal demand; intermittent-demand models such as Croston are not part of standard MRP forecasting.' },
+    { t: 'Digital twin per part', v: 'part', d: 'Simulates 10 years of demand and lead-time scenarios under ~18 reorder points to draw each part\'s own service-vs-stock curve.', data: 'VBAP, EKBE, MARC lot sizes', mrp: 'No simulation: parameters are set and the effect is seen only after it happens.' },
+    { t: 'One stock budget, spent where it earns most', v: 'overview', d: 'Allocates a working-capital budget across all parts at once, giving each extra rupee of stock to the part where it prevents the most lost sales.', data: 'All of the above, MBEW prices', mrp: 'Each material is planned on its own; there is no portfolio view of service against total inventory investment.' },
+    { t: 'Monsoon-aware reorder points', v: 'capital', d: 'Learns the seasonal profile per material group, so even slow parts get it, and sets a reorder point for each month.', data: 'VBAP / MATDOC by posting month', mrp: 'A manual reorder point stays fixed; automatic reorder points use only the part\'s own history, which is too thin for slow movers to show a season.' },
+    { t: 'Service targets by sales channel', v: 'service', d: 'Tracks fill rate for dealership, OEM and third-party sales and raises a part\'s target to the channel mix it serves.', data: 'VBAK-VTWEG, VBAP, LIPS', mrp: 'Safety stock has no notion of which channel the demand comes from.' },
+    { t: 'Validated on history before go-live', v: 'overview', d: 'Replays the policy day by day on the last 52 weeks of actual orders, re-calibrating every 8 weeks with only past data, and reports fill rate and stock.', data: 'Full history', mrp: 'No replay of past demand against proposed settings.' },
+    { t: 'A written reason for every number', v: 'part', d: 'Each recommendation comes with a plain-language explanation: demand pattern, model, lead time, season, one-off orders removed, target.', data: 'All inputs', mrp: 'Parameters carry no explanation of why they have their value.' },
+    { t: 'Transfer before you buy', v: 'actions', d: 'When one plant needs stock that another holds in surplus, the AI proposes a stock transfer and its value instead of a purchase order.', data: 'MARD, MARC, both plants', mrp: 'Plants are planned separately unless special procurement between them is configured; surplus elsewhere is not offered as a source.' },
+    { t: 'Working-capital release plan', v: 'capital', d: 'Ranks dead, superseded, slow-moving and excess stock by value, shows aging, and walks from today\'s stock to the AI level with the holding-cost saving.', data: 'MARD, MBEW, MATDOC, MARA-MSTAE', mrp: 'Stock lists and aging reports exist, but not tied to a target stock level per part.' },
+    { t: 'What-if in seconds', v: 'overview', d: 'Switch between lean, balanced and high-service settings, drag a budget, or change channel targets, and every recommendation and chart updates.', data: '—', mrp: 'Changing a policy means editing master data and waiting for the next MRP run to see the effect.' },
+    { t: 'Outside SAP, read-only', v: 'data', d: 'Runs on CSV extracts on DOZCO\'s own platform. No ABAP, no transports; results go back as a change file for mass maintenance (MM17) after review.', data: 'Extractor CSVs', mrp: 'Not applicable: SAP stays the system of record and is not modified.' },
+  ];
+
+  function renderHelp() {
+    const el = $('#view-help');
+    const name = Object.fromEntries(VIEWS.filter(v => v.id).map(v => [v.id, v.label]));
+    el.innerHTML = `
+      <div class="panel">
+        <div class="panel-head"><div><h3>What the AI does for safety stock</h3><p>Fourteen capabilities in this demo. Each card says what it does, which SAP data it uses, where to see it, and what it adds beyond standard MRP. Figures in the demo come from generated sample data in SAP table layouts.</p></div></div>
+        <div class="features">${FEATURES.map((f, i) => `
+          <article class="feature">
+            <div class="feature-n">${String(i + 1).padStart(2, '0')}</div>
+            <h3>${esc(f.t)}</h3>
+            <p>${esc(f.d)}</p>
+            <div class="feature-beyond"><span class="eyebrow">Beyond standard MRP</span><p>${esc(f.mrp)}</p></div>
+            <div class="feature-foot"><span class="mono">${esc(f.data)}</span><button class="btn" data-go="${f.v}">See it in ${esc(name[f.v])} →</button></div>
+          </article>`).join('')}</div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div><h3>How to read the demo</h3></div></div>
+        <ul class="why">
+          <li><span><b>Stocking policy</b> (top bar): Lean stock, Balanced and High service pick points on the validated service-vs-stock curve. Service targets uses fill-rate targets by ABC/XYZ class and sales channel. Custom budget lets you set the stock budget yourself.</span></li>
+          <li><span><b>Validated</b> means replayed on the last 52 weeks of actual sales orders, with supplier lead times drawn from real purchase orders and re-calibration every 8 weeks using only past data.</span></li>
+          <li><span><b>Current</b> values come from the material master (MARC) and are shown only so the change file can be reviewed.</span></li>
+          <li><span><b>Your own data:</b> on SAP data &amp; method, load one CSV per table; everything runs in the browser.</span></li>
+        </ul>
+      </div>`;
+    $$('[data-go]', el).forEach(b => b.addEventListener('click', () => setTab(b.dataset.go)));
   }
 
   // ---------------- CSV ----------------
