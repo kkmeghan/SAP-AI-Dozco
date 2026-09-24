@@ -1056,7 +1056,7 @@
     for (const k in T) for (const r of T[k]) {
       for (const f of DATE) if (r[f] != null) r[f] = normDate(r[f]);
       if (r.MATNR != null) r.MATNR = r.MATNR.replace(/^0+(?=\d)/, '');
-      for (const f of ['MENGE', 'KWMENG', 'LFIMG', 'LABST', 'VERPR', 'STPRS', 'NETPR', 'EISBE', 'MINBE', 'MABST', 'BSTMI', 'BSTRF', 'PLIFZ']) if (r[f] != null) r[f] = r[f].replace(/\s/g, '').replace(/,(?=\d{1,3}$)/, '.').replace(/,/g, '');
+      for (const f of ['MENGE', 'KWMENG', 'LGMNG', 'LFIMG', 'LABST', 'VERPR', 'STPRS', 'NETPR', 'EISBE', 'MINBE', 'MABST', 'BSTMI', 'BSTRF', 'PLIFZ']) if (r[f] != null) r[f] = r[f].replace(/\s/g, '').replace(/,(?=\d{1,3}$)/, '.').replace(/,/g, '');
     }
     msg.textContent = 'Loaded ' + Object.keys(T).map(k => `${k} (${nf(T[k].length)})`).join(', ') + '. Analysing…';
     state.part = null; state.tab = 'overview';

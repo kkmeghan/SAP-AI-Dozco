@@ -214,7 +214,7 @@
                 const m = String(mblnr++);
                 T.EKBE.push({ EBELN: po.EBELN, EBELP: po.EBELP, VGABE: '1', BWART: '101', BUDAT: dats(d), MENGE: po.qty, BELNR: m });
                 po.eket.WEMNG = po.qty; po.ekpo.ELIKZ = 'X';
-                docLines.push({ MBLNR: m, ZEILE: 1, BWART: '101', MATNR, WERKS: pl.WERKS, LGORT, MENGE: po.qty, SHKZG: 'S', BUDAT: dats(d), LIFNR: po.LIFNR, EBELN: po.EBELN, KUNNR: '', VBELN: '', DMBTR: Math.round(po.qty * price) });
+                docLines.push({ MBLNR: m, ZEILE: 1, BWART: '101', MATNR, WERKS: pl.WERKS, LGORT, MENGE: po.qty, SHKZG: 'S', BUDAT: dats(d), LIFNR: po.LIFNR, EBELN: po.EBELN, KUNNR: '', VBELN_IM: '', DMBTR: Math.round(po.qty * price) });
                 openPOs.splice(i, 1);
               }
             }
@@ -238,8 +238,8 @@
               if (deliv > 0) {
                 const dl = String(vbelnDel++);
                 const m = String(mblnr++);
-                T.LIPS.push({ VBELN: dl, POSNR: 10, VGBEL: so, VGPOS: 10, MATNR, WERKS: pl.WERKS, LFIMG: deliv, WADAT_IST: dats(d) });
-                docLines.push({ MBLNR: m, ZEILE: 1, BWART: '601', MATNR, WERKS: pl.WERKS, LGORT, MENGE: deliv, SHKZG: 'H', BUDAT: dats(d), LIFNR: '', EBELN: '', KUNNR: kunnr, VBELN: dl, DMBTR: Math.round(deliv * price) });
+                T.LIPS.push({ VBELN: dl, POSNR: 10, VGBEL: so, VGPOS: 10, MATNR, WERKS: pl.WERKS, LGMNG: deliv });
+                docLines.push({ MBLNR: m, ZEILE: 1, BWART: '601', MATNR, WERKS: pl.WERKS, LGORT, MENGE: deliv, SHKZG: 'H', BUDAT: dats(d), LIFNR: '', EBELN: '', KUNNR: kunnr, VBELN_IM: dl, DMBTR: Math.round(deliv * price) });
                 stock -= deliv;
               }
             }
@@ -278,19 +278,22 @@
   const DICTIONARY = [
     { table: 'MARA', desc: 'General material data', fields: 'MATNR, MTART, MATKL, MEINS, ERSDA, MFRPN, MSTAE, MSTDE', use: 'Material master, category, unit, OEM part no.; cross-plant status flags superseded / obsolete parts' },
     { table: 'MAKT', desc: 'Material descriptions', fields: 'MATNR, SPRAS, MAKTX', use: 'Readable descriptions' },
-    { table: 'MARC', desc: 'Plant data for material (MRP views)', fields: 'MATNR, WERKS, DISMM, DISPO, EKGRP, PLIFZ, WEBAZ, EISBE, MINBE, DISLS, MABST, BSTMI, BSTRF, MAABC', use: 'Current SAP policy: safety stock, reorder point, lot size, planned delivery time (baseline to beat)' },
+    { table: 'MARM', desc: 'Alternative units of measure', fields: 'MATNR, MEINH, UMREZ, UMREN', use: 'Unit conversion to base unit' },
+    { table: 'MARC', desc: 'Plant data for material (MRP views)', fields: 'MATNR, WERKS, DISMM, DISPO, EKGRP, PLIFZ, WEBAZ, EISBE, MINBE, DISLS, MABST, BSTMI, BSTRF, MAABC, LGRAD, SHZET, BSTMA, MMSTA', use: 'Current SAP policy: safety stock, reorder point, lot size, planned delivery time (baseline to beat)' },
     { table: 'MARD', desc: 'Storage-location stock', fields: 'MATNR, WERKS, LGORT, LABST, INSME, SPEME', use: 'Stock on hand by location' },
     { table: 'MBEW', desc: 'Material valuation', fields: 'MATNR, BWKEY, VPRSV, VERPR, STPRS, PEINH, LBKUM, SALK3', use: 'Unit cost and stock value (working capital)' },
-    { table: 'MATDOC', desc: 'Material documents (S/4HANA; MSEG/MKPF compatible)', fields: 'MBLNR, MJAHR, ZEILE, BWART, MATNR, WERKS, LGORT, MENGE, SHKZG, BUDAT, LIFNR, EBELN, KUNNR, VBELN, DMBTR', use: 'Consumption (601/261/201), receipts (101), reversals; transfers (301/311/641) kept apart from true consumption; aging' },
-    { table: 'EKKO', desc: 'Purchasing document header', fields: 'EBELN, BSART, LIFNR, BEDAT, EKORG, EKGRP', use: 'PO date and supplier' },
-    { table: 'EKPO', desc: 'Purchasing document item', fields: 'EBELN, EBELP, MATNR, WERKS, LGORT, MENGE, MEINS, NETPR, PEINH, ELIKZ', use: 'Ordered quantity, open POs, price' },
+    { table: 'MATDOC', desc: 'Material documents (S/4HANA; MSEG/MKPF compatible)', fields: 'MBLNR, MJAHR, ZEILE, BWART, MATNR, WERKS, LGORT, MENGE, SHKZG, BUDAT, LIFNR, EBELN, KUNNR, VBELN_IM, VBELP_IM, KDAUF, KDPOS, DMBTR, SMBLN, SJAHR, SMBLP', use: 'Trading demand = 601 net of 602; customer returns 651/653 treated separately; receipts 101 net of 102; transfers 301/311/641/643 kept apart (demand only at the supplying location); 261/201 excluded (production/internal use, not trading demand)' },
+    { table: 'EKKO', desc: 'Purchasing document header', fields: 'EBELN, BSART, LIFNR, BEDAT, EKORG, EKGRP, RESWK', use: 'PO date and supplier; Separate supplier POs from stock-transfer orders (BSART UB / PSTYP 7); exclude deleted lines' },
+    { table: 'EKPO', desc: 'Purchasing document item', fields: 'EBELN, EBELP, MATNR, WERKS, LGORT, MENGE, MEINS, NETPR, PEINH, ELIKZ, LOEKZ, PSTYP', use: 'Ordered quantity, open POs, price; Separate supplier POs from stock-transfer orders (BSART UB / PSTYP 7); exclude deleted lines' },
     { table: 'EKET', desc: 'PO schedule lines', fields: 'EBELN, EBELP, ETENR, EINDT, MENGE, WEMNG', use: 'Promised delivery date (supplier reliability)' },
-    { table: 'EKBE', desc: 'PO history', fields: 'EBELN, EBELP, VGABE, BWART, BUDAT, MENGE, BELNR', use: 'Actual goods-receipt date: actual lead time = EKBE-BUDAT - EKKO-BEDAT' },
+    { table: 'EKBE', desc: 'PO history', fields: 'EBELN, EBELP, VGABE, BWART, BUDAT, MENGE, SHKZG, BELNR', use: 'Actual goods-receipt date: actual lead time = EKBE-BUDAT - EKKO-BEDAT; Filter VGABE = 1; net 102 reversals; lead time = first GR date − EKKO-BEDAT (calendar days)' },
     { table: 'VBAK', desc: 'Sales document header', fields: 'VBELN, AUART, VKORG, VTWEG, KUNNR, ERDAT', use: 'Order date and channel (3P / OEM / dealership)' },
-    { table: 'VBAP', desc: 'Sales document item', fields: 'VBELN, POSNR, MATNR, WERKS, KWMENG, VRKME, NETWR, ABGRU', use: 'True customer demand, including what could not be supplied' },
+    { table: 'VBAP', desc: 'Sales document item', fields: 'VBELN, POSNR, MATNR, WERKS, PSTYV, KWMENG, VRKME, UMVKZ, UMVKN, MEINS, NETWR, ABGRU', use: 'True customer demand, including what could not be supplied; Exclude third-party items (TAS) and free-of-charge/text items; convert to base unit' },
     { table: 'VBEP', desc: 'Sales schedule lines (optional)', fields: 'VBELN, POSNR, ETENR, EDATU, WMENG, BMENG', use: 'Requested vs confirmed quantity and date: service level against what the customer asked for' },
-    { table: 'LIPS', desc: 'Delivery item', fields: 'VBELN, POSNR, VGBEL, VGPOS, MATNR, WERKS, LFIMG, WADAT_IST', use: 'Delivered quantity: fill rate and stockout incidents' },
-    { table: 'EINE', desc: 'Purchasing info record (optional)', fields: 'INFNR, EKORG, WERKS, APLFZ, NETPR, PEINH', use: 'Vendor-specific planned delivery time, a second baseline besides MARC-PLIFZ' },
+    { table: 'LIKP', desc: 'Delivery header', fields: 'VBELN, LFART, WADAT_IST', use: 'Actual goods-issue date; demand-fulfilment timing' },
+    { table: 'LIPS', desc: 'Delivery item', fields: 'VBELN, POSNR, VGBEL, VGPOS, MATNR, WERKS, LGMNG', use: 'Delivered quantity: fill rate and stockout incidents' },
+    { table: 'EINA', desc: 'Purchasing info record – general', fields: 'INFNR, MATNR, LIFNR', use: 'Links info record to material and supplier' },
+    { table: 'EINE', desc: 'Purchasing info record (optional)', fields: 'INFNR, EKORG, ESOKZ, WERKS, APLFZ, NETPR, PEINH', use: 'Vendor-specific planned delivery time, a second baseline besides MARC-PLIFZ' },
     { table: 'LFA1', desc: 'Supplier master', fields: 'LIFNR, NAME1, LAND1, ORT01, KTOKK', use: 'Supplier name and origin (domestic / import)' },
     { table: 'KNA1', desc: 'Customer master', fields: 'KUNNR, NAME1, ORT01, KTOKD', use: 'Customer segmentation' },
     { table: 'T001W', desc: 'Plants', fields: 'WERKS, NAME1, ORT01', use: 'Branch / warehouse names' },

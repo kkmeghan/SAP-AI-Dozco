@@ -145,7 +145,7 @@
       vbapByKey.set(p.VBELN + '|' + (+p.POSNR), { s, q, d, ch: String(h.VTWEG || '') });
     }
     const delivered = new Map();
-    for (const l of T.LIPS) { const k = l.VGBEL + '|' + (+l.VGPOS); delivered.set(k, (delivered.get(k) || 0) + num(l.LFIMG)); }
+    for (const l of T.LIPS) { const k = l.VGBEL + '|' + (+l.VGPOS); delivered.set(k, (delivered.get(k) || 0) + num(l.LGMNG != null && l.LGMNG !== '' ? l.LGMNG : l.LFIMG)); }
     const nPer = Math.ceil(days / PERIOD);
     for (const [k, v] of vbapByKey) {
       const got = Math.min(delivered.get(k) || 0, v.q);
