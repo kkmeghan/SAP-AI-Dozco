@@ -55,10 +55,9 @@ python3 -m http.server 8000     # or: npx serve .
 
 The deployable site is the `app/` folder: plain HTML, CSS and JS with Chart.js vendored, so it needs no CDN.
 
-**GitHub Pages (automatic):** `.github/workflows/pages.yml` runs the smoke test and publishes `app/` on every push to `main`, `master` or `claude/**`.
-1. In the repository, open **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. Push, or run the workflow manually from the Actions tab. The URL is `https://<owner>.github.io/<repo>/`.
-   GitHub Pages for a *private* repository needs a paid GitHub plan. Otherwise make the repository public or use one of the options below.
+**Live demo (GitHub Pages):** <https://kkmeghan.github.io/SAP-AI-Dozco/>. It opens the app at `/app/`.
+
+GitHub Pages is set to **Settings → Pages → Deploy from a branch**, with the working branch and the `/ (root)` folder. Every push to that branch republishes the site within a minute or two. The root `index.html` forwards to `app/`, and `.nojekyll` makes GitHub serve the files as they are. `.github/workflows/test.yml` only runs the engine smoke test.
 
 **Netlify / Cloudflare Pages / Vercel (free tiers):** connect the repository, leave the build command empty, and set the publish directory to `app`. For a one-off link without an account connection, drag the `app` folder onto <https://app.netlify.com/drop>.
 
@@ -86,6 +85,7 @@ app/
 docs/SAP_Data_Requirements.md
 tools/export-sample-data.js   write the sample extract as CSV
 tools/smoke-test.js           engine end-to-end check (used by CI)
+index.html                    forwards the GitHub Pages root to app/
 ```
 
 ## Method in brief
