@@ -57,7 +57,7 @@ The deployable site is the `app/` folder: plain HTML, CSS and JS with Chart.js v
 
 **Live demo (GitHub Pages):** <https://kkmeghan.github.io/SAP-AI-Dozco/>. It opens the app at `/app/`.
 
-GitHub Pages is set to **Settings → Pages → Deploy from a branch**, with the working branch and the `/ (root)` folder. Every push to that branch republishes the site within a minute or two. The root `index.html` forwards to `app/`, and `.nojekyll` makes GitHub serve the files as they are. `.github/workflows/test.yml` only runs the engine smoke test.
+GitHub Pages is set to **Settings → Pages → Deploy from a branch**, with branch `main` and the `/ (root)` folder. Every push to that branch republishes the site within a minute or two. The root `index.html` forwards to `app/`, and `.nojekyll` makes GitHub serve the files as they are. `.github/workflows/test.yml` only runs the engine smoke test.
 
 **Netlify / Cloudflare Pages / Vercel (free tiers):** connect the repository, leave the build command empty, and set the publish directory to `app`. For a one-off link without an account connection, drag the `app` folder onto <https://app.netlify.com/drop>.
 
