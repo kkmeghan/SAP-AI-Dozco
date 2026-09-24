@@ -26,6 +26,10 @@
 
   const DAY_MS = 86400000;
   const WEEKS = 104;
+  const PERIOD = 28; // 4-week "month" buckets for trends and XYZ
+  // cross-plant material status values treated as superseded / blocked for procurement
+  const OBSOLETE_STATUS = new Set(['Z1', 'Z2', 'OB', '99']);
+  const CHANNEL_NAMES = { '10': 'Third-party distribution', '20': 'OEM', '30': 'Dealership & spare-parts trading' };
 
   // SAP DATS (YYYYMMDD); also accepts YYYY-MM-DD and DD.MM.YYYY
   function parseDats(s) {
@@ -80,6 +84,16 @@
     BX: 0.98, BY: 0.97, BZ: 0.95,
     CX: 0.96, CY: 0.95, CZ: 0.92,
   };
+  // fill-rate targets agreed per sales channel (VBAK-VTWEG)
+  const DEFAULT_CHANNEL = { '10': 0.92, '20': 0.97, '30': 0.95 };
+  // class target, raised to the part's channel-weighted target when that is higher
+  function classChannelTarget(s, c, cfg) {
+    if (c.dead) return 0;
+    const t = cfg.service[c.abc + c.xyz] || 0.95;
+    const ct = cfg.channelTargets; if (!ct) return t;
+    let w = 0, acc = 0; for (const k in s.channel) { const v = s.channel[k]; if (v > 0 && ct[k] != null) { w += v; acc += v * ct[k]; } }
+    return w > 0 ? Math.max(t, acc / w) : t;
+  }
   const DEFAULTS = { holdingRate: 0.22, orderCostDomestic: 1500, orderCostImport: 6000, sims: 520, recalSims: 260, recalEvery: 8, mode: 'budget', service: DEFAULT_SERVICE };
 
   // ------------------------------------------------------------------
@@ -99,7 +113,7 @@
     const plants = {}; for (const p of T.T001W) plants[p.WERKS] = p.NAME1;
     const suppliers = {}; for (const s of T.LFA1) suppliers[s.LIFNR] = { LIFNR: s.LIFNR, NAME1: s.NAME1, LAND1: s.LAND1, ORT01: s.ORT01, import: s.LAND1 !== 'IN' };
     const mats = {};
-    for (const m of T.MARA) mats[m.MATNR] = { MATNR: m.MATNR, MATKL: m.MATKL, MEINS: m.MEINS, MFRPN: m.MFRPN || '', MAKTX: m.MATNR };
+    for (const m of T.MARA) mats[m.MATNR] = { MATNR: m.MATNR, MATKL: m.MATKL, MEINS: m.MEINS, MFRPN: m.MFRPN || '', MAKTX: m.MATNR, MSTAE: m.MSTAE || '', obsolete: OBSOLETE_STATUS.has(String(m.MSTAE || '').toUpperCase()) };
     for (const m of T.MAKT) if (mats[m.MATNR] && (!m.SPRAS || m.SPRAS === 'E' || m.SPRAS === 'EN')) mats[m.MATNR].MAKTX = m.MAKTX;
 
     const skus = {}; const list = [];
@@ -110,7 +124,7 @@
         marc: { DISMM: c.DISMM, PLIFZ: num(c.PLIFZ), WEBAZ: num(c.WEBAZ), EISBE: num(c.EISBE), MINBE: num(c.MINBE), MABST: num(c.MABST), BSTMI: num(c.BSTMI), BSTRF: num(c.BSTRF), DISLS: c.DISLS, DISPO: c.DISPO },
         stock: 0, price: 0,
         demandDay: new Float64Array(days), deliveredDay: new Float64Array(days), consDay: new Float64Array(days), rcptDay: new Float64Array(days),
-        orderLines: 0, lostLines: 0, channel: { '10': 0, '20': 0, '30': 0 },
+        orderLines: 0, lostLines: 0, channel: { '10': 0, '20': 0, '30': 0 }, chReq: {}, chDel: {},
         pos: [], lastIssue: -1, lastReceipt: -1,
       };
       skus[key] = s; list.push(s);
@@ -128,11 +142,17 @@
       const q = num(p.KWMENG);
       s.demandDay[d] += q; s.orderLines++;
       s.channel[h.VTWEG] = (s.channel[h.VTWEG] || 0) + q;
-      vbapByKey.set(p.VBELN + '|' + (+p.POSNR), { s, q, d });
+      vbapByKey.set(p.VBELN + '|' + (+p.POSNR), { s, q, d, ch: String(h.VTWEG || '') });
     }
     const delivered = new Map();
     for (const l of T.LIPS) { const k = l.VGBEL + '|' + (+l.VGPOS); delivered.set(k, (delivered.get(k) || 0) + num(l.LFIMG)); }
-    for (const [k, v] of vbapByKey) { const got = delivered.get(k) || 0; v.s.deliveredDay[v.d] += Math.min(got, v.q); if (got < v.q) v.s.lostLines++; }
+    const nPer = Math.ceil(days / PERIOD);
+    for (const [k, v] of vbapByKey) {
+      const got = Math.min(delivered.get(k) || 0, v.q);
+      v.s.deliveredDay[v.d] += got; if (got < v.q) v.s.lostLines++;
+      const R = v.s.chReq[v.ch] || (v.s.chReq[v.ch] = new Float64Array(nPer)), Dl = v.s.chDel[v.ch] || (v.s.chDel[v.ch] = new Float64Array(nPer));
+      const per = Math.floor(v.d / PERIOD); R[per] += v.q; Dl[per] += got;
+    }
 
     // material documents: consumption, receipts, last movements
     const CONS = { '601': 1, '261': 1, '201': 1, '602': -1, '262': -1, '202': -1 };
@@ -311,6 +331,7 @@
     const price = s.price || 1;
     const empty = { pattern: pat, lt, L, fc: null, d: 0, sigma: 0, q: 0, clean, ltd: null, recent, curve: [{ R: 0, rop: 0, ss: 0, fill: 1, onHand: 0, inv: 0 }], sapTwin: { fill: 1, inv: 0 }, stop: true };
     if (pat.pattern === 'none' || cls.dead) return Object.assign(empty, { method: 'No demand in the last 52 weeks: do not replenish' });
+    if (cls.obsolete) return Object.assign(empty, { method: 'Superseded / blocked in SAP (MARA-MSTAE): do not replenish' });
     if (cls.slow) return Object.assign(empty, { method: 'No demand in the last 26 weeks: order only against a customer order' });
 
     const cat = ctx.season.byCat[s.mat.MATKL];
@@ -318,11 +339,17 @@
     const sIdx = useSeason ? ctx.season.monthOfWeek.slice(0, clean.series.length).map(m => cat.idx[m]) : null;
     const fc = forecast(clean.series, sIdx, pat.pattern);
     let d = fc.best.level;
-    if (useSeason && fc.best.deseason) {
-      // average seasonal multiplier across the coming lead time vs this week
-      const nowM = ctx.season.monthOfWeek[(uptoWeek - 1) % ctx.season.monthOfWeek.length];
-      let acc = 0; const n = Math.max(1, Math.ceil(L)); for (let i = 1; i <= n; i++) acc += cat.idx[(nowM + Math.floor((i * 7) / 30)) % 12];
-      d = d / cat.idx[nowM] * (acc / n);
+    // seasonal factor averaged over a lead-time window starting in calendar month m
+    const nowM = ctx.season.monthOfWeek[(uptoWeek - 1) % ctx.season.monthOfWeek.length];
+    const nL = Math.max(1, Math.ceil(L));
+    const windowF = (m) => { let acc = 0; for (let i = 1; i <= nL; i++) acc += cat.idx[(m + Math.floor((i * 7) / 30)) % 12]; return acc / nL; };
+    let season = null;
+    if (useSeason) {
+      const fNow = windowF(nowM);
+      let dBase;
+      if (fc.best.deseason) { dBase = d; d = dBase * fNow; }
+      else { let fr = 0; for (let i = 1; i <= 13; i++) fr += cat.idx[ctx.season.monthOfWeek[Math.max(0, uptoWeek - i)]]; dBase = d / (fr / 13); }
+      season = { dBase, fNow, nowM, factors: Array.from({ length: 12 }, (_, m) => windowF(m)), idx: cat.idx };
     }
     const sigma = Math.max(fc.best.rmse, 0.25 * sd(recentClean));
     // order quantity first: a fill-rate target is met per replenishment cycle of Q units
@@ -362,7 +389,7 @@
     for (let i = 1; i < curve.length; i++) if (curve[i].inv < curve[i - 1].inv) curve[i].inv = curve[i - 1].inv;
     const sapTwin = twin(s.marc.MINBE, Math.max(s.marc.MABST, s.marc.MINBE + minLot));
     const method = pat.pattern === 'smooth' || pat.pattern === 'erratic' ? 'Digital-twin simulation (regular demand)' : 'Digital-twin simulation (intermittent demand)';
-    return { pattern: pat, lt, L, sL, fc, d, sigma, sLTD, q, clean, method, ltd, recent, curve, sapTwin: { fill: sapTwin.fill, inv: sapTwin.onHand * price }, stop: false };
+    return { pattern: pat, lt, L, sL, fc, d, sigma, sLTD, q, clean, method, ltd, recent, curve, season, sapTwin: { fill: sapTwin.fill, inv: sapTwin.onHand * price }, stop: false };
   }
 
   function runTwin(dem, ltw, R, Smax, minLot, round) {
@@ -437,15 +464,16 @@
     const rows = prep.skus.map(s => {
       const w = weekly(s.demandDay, Math.max(0, uptoWeek - 52) * 7, uptoWeek * 7);
       const tot = w.reduce((a, x) => a + x, 0);
-      const m = mean(w); const cv = m > 0 ? sd(w) / m : Infinity;
+      const mo = []; for (let i = 0; i + 4 <= w.length; i += 4) mo.push(w[i] + w[i + 1] + w[i + 2] + w[i + 3]);
+      const m = mean(mo); const cv = m > 0 ? sd(mo) / m : Infinity;
       const w26 = w.slice(-26).reduce((a, x) => a + x, 0);
       return { s, value: tot * s.price, cv, tot, w26 };
     });
     const sorted = rows.filter(r => r.value > 0).sort((a, b) => b.value - a.value);
     const total = sorted.reduce((a, r) => a + r.value, 0) || 1;
     let cum = 0; const out = new Map();
-    for (const r of sorted) { cum += r.value; const share = cum / total; out.set(r.s.key, { abc: share <= 0.8 ? 'A' : share <= 0.95 ? 'B' : 'C', xyz: r.cv < 0.5 ? 'X' : r.cv < 1.0 ? 'Y' : 'Z', cv: r.cv, annualValue: r.value, dead: false, slow: r.w26 === 0 }); }
-    for (const r of rows) if (!out.has(r.s.key)) out.set(r.s.key, { abc: 'C', xyz: 'Z', cv: Infinity, annualValue: 0, dead: true, slow: true });
+    for (const r of sorted) { cum += r.value; const share = cum / total; out.set(r.s.key, { abc: share <= 0.8 ? 'A' : share <= 0.95 ? 'B' : 'C', xyz: r.cv < 0.2 ? 'X' : r.cv <= 0.5 ? 'Y' : 'Z', cv: r.cv, annualValue: r.value, dead: false, slow: r.w26 === 0 || r.s.mat.obsolete, obsolete: r.s.mat.obsolete }); }
+    for (const r of rows) if (!out.has(r.s.key)) out.set(r.s.key, { abc: 'C', xyz: 'Z', cv: Infinity, annualValue: 0, dead: true, slow: true, obsolete: r.s.mat.obsolete });
     return out;
   }
 
@@ -489,7 +517,7 @@
   // ------------------------------------------------------------------
   function mergeCfg(userCfg) {
     const u = userCfg || {};
-    return Object.assign({}, DEFAULTS, u, { service: Object.assign({}, DEFAULT_SERVICE, u.service || {}) });
+    return Object.assign({}, DEFAULTS, u, { service: Object.assign({}, DEFAULT_SERVICE, u.service || {}), channelTargets: Object.assign({}, DEFAULT_CHANNEL, u.channelTargets || {}) });
   }
 
   // async so a browser can repaint a progress bar between chunks
@@ -535,7 +563,7 @@
       const m = new Map(); skus.forEach((s, i) => m.set(s.key, pols[i].curve[ch.get(s.key)].fill)); return m;
     }
     const m = new Map();
-    skus.forEach((s) => { const c = cls.get(s.key); m.set(s.key, c.dead ? 0 : (cfg.service[c.abc + c.xyz] || 0.95)); });
+    skus.forEach((s) => m.set(s.key, classChannelTarget(s, cls.get(s.key), cfg)));
     return m;
   }
 
@@ -589,7 +617,7 @@
       const chs = recal.map(rc => optimise(skus.map((s, i) => ({ key: s.key, p: rc.pols[i], price: s.price, D: rc.pols[i].d * 52 })), budget).choice);
       return run((i, k) => recal[k].pols[i].curve[chs[k].get(skus[i].key)]);
     };
-    const byMatrix = () => run((i, k) => { const c = recal[k].cls.get(skus[i].key); return atTarget(recal[k].pols[i], c.dead ? 0 : (cfg.service[c.abc + c.xyz] || 0.95)); });
+    const byMatrix = () => run((i, k) => atTarget(recal[k].pols[i], classChannelTarget(skus[i], recal[k].cls.get(skus[i].key), cfg)));
     const out = { sap, fromDay, days: prep.days - fromDay };
     if (opts.frontier) {
       const base = model.sapTwin.inv;
@@ -655,6 +683,18 @@
     r.excessQty = Math.max(0, s.stock - Math.max(r.ai.max, 0));
     if (p.stop) r.excessQty = s.stock;
     r.excessValue = r.excessQty * price;
+    r.obsolete = !!s.mat.obsolete; r.MSTAE = s.mat.MSTAE;
+    r.daysSinceIssue = s.lastIssue >= 0 ? prep.days - s.lastIssue : 999;
+    // seasonal reorder-point calendar for the next 12 months (SAP holds one static value)
+    const m0 = new Date(prep.end).getUTCMonth();
+    r.calendar = Array.from({ length: 12 }, (_, k) => {
+      const m = (m0 + k) % 12;
+      if (p.stop || !p.season) return { m, f: 1, rop: r.ai.rop };
+      // anchored on today's recommendation: shift by the seasonal change in lead-time demand
+      const rel = p.season.factors[m] / p.season.factors[m0];
+      return { m, f: rel, rop: Math.max(0, Math.round(r.ai.rop + p.d * p.L * (rel - 1) + r.ai.ss * (Math.sqrt(rel) - 1))) };
+    });
+    r.seasonal = !!p.season && !p.stop;
     r.explain = explain(r);
     return r;
   }
@@ -665,7 +705,8 @@
     for (const r of results) r.siblings = byMat[r.MATNR].filter(x => x !== r);
   }
 
-  const fmtN = (x) => (x >= 100 ? Math.round(x).toLocaleString('en-IN') : x >= 10 ? x.toFixed(0) : x.toFixed(1));
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const fmtN = (x) => (Number.isInteger(x) ? x.toLocaleString('en-IN') : x >= 100 ? Math.round(x).toLocaleString('en-IN') : x >= 10 ? x.toFixed(0) : x.toFixed(1));
   const PAT_TEXT = {
     smooth: 'steady, frequent demand',
     erratic: 'frequent demand with big swings in order size',
@@ -682,6 +723,11 @@
       parts.push(`SAP still holds a safety stock of ${r.sap.ss} and would reorder at ${r.sap.rop}. Set MARC-EISBE and MARC-MINBE to 0 and redeploy or liquidate the stock.`);
       return parts;
     }
+    if (r.obsolete) {
+      parts.push(`Material status ${r.MSTAE} in SAP (MARA-MSTAE) marks this part as superseded or blocked for procurement. ${fmtN(r.stock)} ${u} on hand worth ₹${fmtN(r.stockValue)}.`);
+      parts.push(`Hold no safety stock. SAP still plans ${r.sap.ss} safety stock and a reorder point of ${r.sap.rop}; set both to 0 and sell down, return to the supplier or redeploy the stock.`);
+      return parts;
+    }
     if (r.stop) {
       parts.push(`No customer demand in the last 26 weeks (last sale ${r.sku.lastIssue >= 0 ? Math.round((r.sku.demandDay.length - r.sku.lastIssue) / 7) + ' weeks ago' : 'over a year ago'}). ${fmtN(r.stock)} ${u} on hand worth ₹${fmtN(r.stockValue)}.`);
       parts.push(`Do not hold safety stock: SAP still plans ${r.sap.ss} safety stock and reorders at ${r.sap.rop}. Set both to 0 and buy only against a firm customer order.`);
@@ -693,6 +739,10 @@
     if (act > plan * 1.2 && act - plan >= 3) parts.push(`${r.supplier.NAME1} actually delivers in ${fmtN(act)} days on average (±${fmtN(r.lt.sd)}), while SAP plans with ${plan} days (MARC-PLIFZ). SAP therefore under-covers the lead time.`);
     else if (act < plan * 0.8 && plan - act >= 3) parts.push(`${r.supplier.NAME1} delivers faster than planned: ${fmtN(act)} days actual vs ${plan} days in MARC-PLIFZ.`);
     else parts.push(`Lead time from ${r.supplier.NAME1}: ${fmtN(act)} days average (±${fmtN(r.lt.sd)}), in line with the ${plan} days planned in SAP.`);
+    if (r.seasonal) {
+      const lo = r.calendar.reduce((a, c) => (c.rop < a.rop ? c : a)), hi = r.calendar.reduce((a, c) => (c.rop > a.rop ? c : a));
+      if (hi.rop > lo.rop) parts.push(`Demand for this material group dips in the monsoon and recovers after it. The reorder point moves with the season, from ${lo.rop} in ${MONTHS[lo.m]} to ${hi.rop} in ${MONTHS[hi.m]}. SAP holds a single static value of ${r.sap.rop}.`);
+    }
     if (r.outliers.length) parts.push(`${r.outliers.length} one-off bulk order${r.outliers.length > 1 ? 's were' : ' was'} excluded from the variability calculation so it does not inflate safety stock.`);
     if (r.lostLines > 0 && r.req52 > r.del52) parts.push(`Last 12 months: ${fmtN(r.req52 - r.del52)} ${u} of customer orders could not be supplied (fill rate ${(r.fill52 * 100).toFixed(1)}%). SAP consumption history hides this demand; the AI uses sales orders.`);
     const wk = r.weeklyFc > 0 ? r.sap.ss / r.weeklyFc : 0;
@@ -706,7 +756,7 @@
     const A = [];
     const u = r.MEINS;
     if (r.stop) {
-      if (r.stock > 0 && r.stockValue > 1000) A.push({ type: 'dead', sev: r.dead ? 'critical' : 'serious', title: r.dead ? 'Dead stock: redeploy, liquidate or scrap' : 'Slow-moving: stop buying, sell down', qty: r.stock, value: r.stockValue, detail: `No demand for ${r.dead ? 52 : 26} weeks; last movement ${r.daysSinceMove} days ago.` });
+      if (r.stock > 0 && r.stockValue > 1000) A.push({ type: 'dead', sev: r.dead || r.obsolete ? 'critical' : 'serious', title: r.obsolete ? 'Superseded part: return, redeploy or liquidate' : r.dead ? 'Dead stock: redeploy, liquidate or scrap' : 'Slow-moving: stop buying, sell down', qty: r.stock, value: r.stockValue, detail: r.obsolete ? `Material status ${r.MSTAE} (superseded). Last sale ${r.daysSinceIssue} days ago.` : `No demand for ${r.dead ? 52 : 26} weeks; last sale ${r.daysSinceIssue >= 999 ? 'over 2 years' : r.daysSinceIssue + ' days'} ago.` });
       if (r.sap.ss > 0 || r.sap.rop > 0) A.push({ type: 'master', sev: 'serious', title: 'Stop replenishment in SAP', value: r.sap.ss * r.price, detail: `MARC-EISBE ${r.sap.ss} → 0, MARC-MINBE ${r.sap.rop} → 0` });
       return A;
     }
@@ -746,7 +796,7 @@
     return t;
   }
 
-  const api = { simulate, build, recommend, backtest, analyze, optimise, atTarget, policy, classify, prepare, seasonalIndices, weekly, zOf, DEFAULT_SERVICE, DEFAULTS, PAT_TEXT, parseDats };
+  const api = { CHANNEL_NAMES, DEFAULT_CHANNEL, PERIOD, MONTHS, simulate, build, recommend, backtest, analyze, optimise, atTarget, policy, classify, prepare, seasonalIndices, weekly, zOf, DEFAULT_SERVICE, DEFAULTS, PAT_TEXT, parseDats };
   root.DZ = root.DZ || {};
   root.DZ.engine = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

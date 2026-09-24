@@ -4,85 +4,84 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Safety Stock Studio</title>
-<meta name="description" content="AI safety-stock optimisation on SAP S/4HANA data: demand, lead time, digital-twin simulation and a backtest against SAP MRP settings.">
+<meta name="description" content="AI safety-stock optimisation on SAP S/4HANA data: true demand, actual lead times, seasonal reorder points, digital-twin simulation and a backtest against SAP MRP settings.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@87,600;87,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@87,500;87,600;87,700;87,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="topbar-inner">
-    <div class="brand">
-      <div class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="30" height="30"><rect x="3" y="18" width="6" height="11" rx="1.5" fill="currentColor" opacity=".45"/><rect x="13" y="11" width="6" height="18" rx="1.5" fill="currentColor" opacity=".7"/><rect x="23" y="4" width="6" height="25" rx="1.5" fill="currentColor"/><path d="M2 14.5h28" stroke="var(--warn-line)" stroke-width="2" stroke-dasharray="3 2.5"/></svg>
-      </div>
+<div class="shell">
+  <aside class="side" aria-label="Main">
+    <div class="side-brand">
+      <svg class="logo" viewBox="0 0 36 36" width="34" height="34" aria-hidden="true">
+        <rect x="1" y="1" width="34" height="34" rx="9" fill="currentColor" opacity=".12"/>
+        <rect x="8" y="19" width="5" height="10" rx="1.5" fill="currentColor" opacity=".55"/>
+        <rect x="15.5" y="13" width="5" height="16" rx="1.5" fill="currentColor" opacity=".8"/>
+        <rect x="23" y="8" width="5" height="21" rx="1.5" fill="currentColor"/>
+        <path d="M6 17.5h24" stroke="#f2b33d" stroke-width="2" stroke-dasharray="3 2.4" stroke-linecap="round"/>
+      </svg>
       <div>
-        <div class="brand-name">Safety Stock Studio</div>
-        <div class="brand-sub">MeghaAI × Quadric IT · DOZCO trading inventory pilot</div>
+        <div class="side-name">Safety Stock Studio</div>
+        <div class="side-by">MeghaAI × Quadric IT</div>
       </div>
     </div>
-    <nav class="tabs" role="tablist" aria-label="Views">
-      <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
-      <button role="tab" data-tab="recs">Recommendations</button>
-      <button role="tab" data-tab="part">Part detail</button>
-      <button role="tab" data-tab="actions">Action center</button>
-      <button role="tab" data-tab="suppliers">Lead times</button>
-      <button role="tab" data-tab="data">SAP data &amp; method</button>
-    </nav>
-  </div>
-</header>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-data" id="side-data"></div>
+  </aside>
 
-<div class="databar" id="databar">
-  <div class="databar-inner">
-    <span class="pill pill-sample" id="dataset-pill">Sample data</span>
-    <span id="dataset-text">Loading…</span>
+  <div class="main-col">
+    <header class="pagehead" id="pagehead" hidden>
+      <div class="pagehead-title">
+        <div class="crumb" id="crumb">DOZCO · Trading inventory pilot</div>
+        <h1 id="page-title">Overview</h1>
+      </div>
+      <div class="controls" id="controls">
+        <div class="seg" role="radiogroup" aria-label="Optimise for" id="seg">
+          <button role="radio" data-preset="sameService" aria-checked="true">Same service, less capital</button>
+          <button role="radio" data-preset="sameInventory" aria-checked="false">Same capital, more service</button>
+          <button role="radio" data-preset="matrix" aria-checked="false">Service targets</button>
+          <button role="radio" data-preset="custom" aria-checked="false">Custom budget</button>
+        </div>
+        <div class="budget" id="budget-wrap" hidden>
+          <input type="range" id="budget" min="0.6" max="1.5" step="0.01" value="1" aria-label="Inventory budget">
+          <output id="budget-out"></output>
+        </div>
+        <select id="plant" aria-label="Plant"></select>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="loading" id="loading">
+        <div class="loading-card">
+          <div class="loading-eyebrow">Safety Stock Studio</div>
+          <div class="loading-title">Reading SAP and simulating every part</div>
+          <ol class="loading-steps" id="loading-steps">
+            <li data-step="0">Load SAP extract <span>MARA · MARC · MATDOC · VBAP · EKKO/EKBE</span></li>
+            <li data-step="1">Rebuild true demand and actual lead times</li>
+            <li data-step="2">Forecast and simulate each material × plant</li>
+            <li data-step="3">Replay 52 weeks against SAP MRP</li>
+          </ol>
+          <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+          <p class="loading-note" id="loading-step">Generating sample SAP extract</p>
+        </div>
+      </section>
+      <section class="view" id="view-overview" hidden></section>
+      <section class="view" id="view-capital" hidden></section>
+      <section class="view" id="view-service" hidden></section>
+      <section class="view" id="view-recs" hidden></section>
+      <section class="view" id="view-part" hidden></section>
+      <section class="view" id="view-actions" hidden></section>
+      <section class="view" id="view-suppliers" hidden></section>
+      <section class="view" id="view-data" hidden></section>
+    </main>
+
+    <footer class="foot">
+      <span>Safety Stock Studio · MeghaAI × Quadric IT</span>
+      <span>Demo figures come from generated sample data in SAP S/4HANA table layouts, not DOZCO records.</span>
+    </footer>
   </div>
 </div>
-
-<main id="main">
-  <section class="loading" id="loading">
-    <div class="loading-card">
-      <div class="loading-title">Analysing SAP data</div>
-      <div class="loading-step" id="loading-step">Generating sample SAP extract</div>
-      <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
-      <p class="loading-note">Every part is forecast, simulated under ~20 stocking policies and replayed against two years of actual orders. This takes a few seconds and runs entirely in your browser; no data leaves this page.</p>
-    </div>
-  </section>
-
-  <!-- Policy selector shared by overview / recommendations / actions -->
-  <section class="policybar" id="policybar" hidden>
-    <div class="policy-label">Optimise for</div>
-    <div class="seg" role="radiogroup" aria-label="Policy">
-      <button role="radio" data-preset="sameService" aria-checked="true">Same service, less capital</button>
-      <button role="radio" data-preset="sameInventory" aria-checked="false">Same capital, better service</button>
-      <button role="radio" data-preset="matrix" aria-checked="false">Service targets by class</button>
-      <button role="radio" data-preset="custom" aria-checked="false">Custom budget</button>
-    </div>
-    <div class="budget" id="budget-wrap" hidden>
-      <label for="budget">Inventory budget</label>
-      <input type="range" id="budget" min="0.6" max="1.5" step="0.01" value="1">
-      <output id="budget-out"></output>
-    </div>
-    <div class="policy-plant">
-      <label for="plant">Plant</label>
-      <select id="plant"></select>
-    </div>
-  </section>
-
-  <section class="view" id="view-overview" hidden></section>
-  <section class="view" id="view-recs" hidden></section>
-  <section class="view" id="view-part" hidden></section>
-  <section class="view" id="view-actions" hidden></section>
-  <section class="view" id="view-suppliers" hidden></section>
-  <section class="view" id="view-data" hidden></section>
-</main>
-
-<footer class="foot">
-  <span>MeghaAI × Quadric IT · Safety Stock Studio · demo build</span>
-  <span>Figures in this demo come from generated sample data in SAP S/4HANA table layouts, not DOZCO records.</span>
-</footer>
-
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="vendor/chart.umd.min.js"></script>

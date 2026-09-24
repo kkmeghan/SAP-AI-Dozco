@@ -95,9 +95,9 @@
   };
 
   const CHANNELS = [
-    { VTWEG: '10', name: '3P / counter sales' },
-    { VTWEG: '20', name: 'OEM & fleet contracts' },
-    { VTWEG: '30', name: 'Dealership service workshop' },
+    { VTWEG: '10', name: 'Third-party distribution' },
+    { VTWEG: '20', name: 'OEM' },
+    { VTWEG: '30', name: 'Dealership & spare-parts trading' },
   ];
 
   function generate(opts) {
@@ -123,11 +123,14 @@
     SUPPLIERS.forEach((s, i) => T.LFA1.push({ LIFNR: String(200001 + i), NAME1: s[1], LAND1: s[2], ORT01: s[3], KTOKK: s[0] === 'IMP' ? 'ZIMP' : 'ZDOM' }));
 
     const customers = [];
-    const custNames = ['Coastal Infra Projects', 'Vizag Port Logistics', 'NMDC Contractor Pool', 'Godavari Constructions', 'Eastern Ghats Mining', 'Simhadri Earthworks', 'Andhra Road Builders', 'Kakinada Quarry Works', 'Rushikonda Developers', 'Araku Aggregates', 'Srikakulam Hire Services', 'Bheemili Contractors', 'Steel Plant Services Co', 'AP State Highways Contractor', 'Vizianagaram Crushers', 'Dozco Service Workshop (internal)'];
-    custNames.forEach((n, i) => { customers.push(String(100001 + i)); T.KNA1.push({ KUNNR: String(100001 + i), NAME1: n, ORT01: 'Visakhapatnam', KTOKD: i === custNames.length - 1 ? 'ZINT' : 'ZCUS' }); });
+    const custNames = ['Coastal Infra Projects', 'Vizag Port Logistics', 'NMDC Contractor Pool', 'Godavari Constructions', 'Eastern Ghats Mining', 'Simhadri Earthworks', 'Andhra Road Builders', 'Kakinada Quarry Works', 'Rushikonda Developers', 'Araku Aggregates', 'Srikakulam Hire Services', 'Bheemili Contractors', 'Steel Plant Services Co', 'AP State Highways Contractor', 'Vizianagaram Crushers', 'Northern Andhra Dealer Network'];
+    custNames.forEach((n, i) => { customers.push(String(100001 + i)); T.KNA1.push({ KUNNR: String(100001 + i), NAME1: n, ORT01: 'Visakhapatnam', KTOKD: 'ZCUS' }); });
 
     // monthly seasonality for construction activity in coastal AP (monsoon dip Jul-Sep, peak Jan-Mar)
-    const SEAS = [0.18, 0.2, 0.22, 0.1, 0.0, -0.1, -0.28, -0.32, -0.2, 0.02, 0.1, 0.14];
+    // monthly profile for coastal AP: monsoon dip Jul-Sep, post-monsoon restocking surge Oct-Mar
+    const SEAS = [0.2, 0.22, 0.18, 0.06, -0.02, -0.12, -0.3, -0.32, -0.26, 0.12, 0.16, 0.18];
+    // share of the monsoon dip each material group feels (construction & mining wear parts feel it most)
+    const SEAS_BY_CAT = { FILT: 0.28, LUBE: 0.32, GET: 0.35, UCAR: 0.3, HYDR: 0.25, ENGN: 0.18, ELEC: 0.12, TRNS: 0.18, BRNG: 0.22, FAST: 0.25 };
 
     let matSeq = 0, ebeln = 4500000000, vbeln = 10000000, vbelnDel = 80000000, mblnr = 4900000000;
     const docLines = []; // collected MATDOC rows
@@ -149,9 +152,9 @@
         const dieDay = life === 'dying' ? Math.floor(uni(120, 420)) : 0;
         const bornDay = life === 'new' ? Math.floor(uni(150, 400)) : 0;
         const trendPerYear = life === 'growing' ? uni(0.3, 0.7) : life === 'declining' ? uni(-0.55, -0.3) : uni(-0.1, 0.12);
-        const seasAmp = cat.seas * uni(0.4, 1.4);
+        const seasAmp = SEAS_BY_CAT[cat.MATKL] * uni(0.75, 1.2);
         const bulkDays = rnd() < 0.06 ? [Math.floor(uni(30, 700))] : [];
-        const chW = ci === 1 || ci === 9 ? [0.6, 0.25, 0.15] : ci === 3 || ci === 7 ? [0.25, 0.45, 0.3] : [0.45, 0.25, 0.3];
+        const chW = ci === 1 || ci === 9 ? [0.3, 0.2, 0.5] : ci === 3 || ci === 7 ? [0.15, 0.5, 0.35] : [0.2, 0.35, 0.45];
         const sups = CAT_SUPPLIERS[cat.MATKL];
         const supIdx = pick(sups);
         const sup = SUPPLIERS[supIdx];
@@ -159,7 +162,8 @@
         const matLtCv = Math.min(0.6, sup[5] * uni(0.7, 1.4));
         const onlyOne = rnd() < 0.14 ? (rnd() < 0.7 ? 0 : 1) : -1;
 
-        T.MARA.push({ MATNR, MTART: 'HAWA', MATKL: cat.MATKL, MEINS: cat.meins, ERSDA: life === 'new' ? dats(Math.max(0, bornDay - 30)) : '20190401', BRGEW: '', MFRPN: `${part.split(' ')[0].slice(0, 3).toUpperCase()}-${Math.floor(uni(1000, 9999))}` });
+        const superseded = life === 'dying' && rnd() < 0.5;
+        T.MARA.push({ MATNR, MTART: 'HAWA', MATKL: cat.MATKL, MEINS: cat.meins, MSTAE: superseded ? 'Z1' : '', MSTDE: superseded ? dats(Math.min(DAYS - 1, dieDay + 30)) : '', ERSDA: life === 'new' ? dats(Math.max(0, bornDay - 30)) : '20190401', BRGEW: '', MFRPN: `${part.split(' ')[0].slice(0, 3).toUpperCase()}-${Math.floor(uni(1000, 9999))}` });
         T.MAKT.push({ MATNR, SPRAS: 'E', MAKTX: desc });
 
         let totalStock = 0, totalValue = 0;
@@ -226,7 +230,7 @@
             if (bulkDays.includes(d) && level > 0.1) lines.push(Math.max(2, Math.round(mu * uni(6, 12))));
             for (const q of lines) {
               const ch = CHANNELS[wpick(chW)];
-              const kunnr = ch.VTWEG === '30' ? customers[customers.length - 1] : customers[Math.floor(rnd() * (customers.length - 1))];
+              const kunnr = customers[Math.floor(rnd() * customers.length)];
               const so = String(vbeln++);
               const deliv = Math.min(stock, q);
               T.VBAK.push({ VBELN: so, AUART: 'ZOR', VKORG: '1000', VTWEG: ch.VTWEG, KUNNR: kunnr, ERDAT: dats(d) });
@@ -272,19 +276,21 @@
 
   // Table / field dictionary used both by the UI and the data-requirements doc
   const DICTIONARY = [
-    { table: 'MARA', desc: 'General material data', fields: 'MATNR, MTART, MATKL, MEINS, ERSDA, MFRPN', use: 'Material master, category, unit of measure, manufacturer part no.' },
+    { table: 'MARA', desc: 'General material data', fields: 'MATNR, MTART, MATKL, MEINS, ERSDA, MFRPN, MSTAE, MSTDE', use: 'Material master, category, unit, OEM part no.; cross-plant status flags superseded / obsolete parts' },
     { table: 'MAKT', desc: 'Material descriptions', fields: 'MATNR, SPRAS, MAKTX', use: 'Readable descriptions' },
     { table: 'MARC', desc: 'Plant data for material (MRP views)', fields: 'MATNR, WERKS, DISMM, DISPO, EKGRP, PLIFZ, WEBAZ, EISBE, MINBE, DISLS, MABST, BSTMI, BSTRF, MAABC', use: 'Current SAP policy: safety stock, reorder point, lot size, planned delivery time (baseline to beat)' },
     { table: 'MARD', desc: 'Storage-location stock', fields: 'MATNR, WERKS, LGORT, LABST, INSME, SPEME', use: 'Stock on hand by location' },
     { table: 'MBEW', desc: 'Material valuation', fields: 'MATNR, BWKEY, VPRSV, VERPR, STPRS, PEINH, LBKUM, SALK3', use: 'Unit cost and stock value (working capital)' },
-    { table: 'MATDOC', desc: 'Material documents (S/4HANA; MSEG/MKPF compatible)', fields: 'MBLNR, MJAHR, ZEILE, BWART, MATNR, WERKS, LGORT, MENGE, SHKZG, BUDAT, LIFNR, EBELN, KUNNR, VBELN, DMBTR', use: 'Consumption (601/261/201), receipts (101), reversals, last-movement dates' },
+    { table: 'MATDOC', desc: 'Material documents (S/4HANA; MSEG/MKPF compatible)', fields: 'MBLNR, MJAHR, ZEILE, BWART, MATNR, WERKS, LGORT, MENGE, SHKZG, BUDAT, LIFNR, EBELN, KUNNR, VBELN, DMBTR', use: 'Consumption (601/261/201), receipts (101), reversals; transfers (301/311/641) kept apart from true consumption; aging' },
     { table: 'EKKO', desc: 'Purchasing document header', fields: 'EBELN, BSART, LIFNR, BEDAT, EKORG, EKGRP', use: 'PO date and supplier' },
     { table: 'EKPO', desc: 'Purchasing document item', fields: 'EBELN, EBELP, MATNR, WERKS, LGORT, MENGE, MEINS, NETPR, PEINH, ELIKZ', use: 'Ordered quantity, open POs, price' },
     { table: 'EKET', desc: 'PO schedule lines', fields: 'EBELN, EBELP, ETENR, EINDT, MENGE, WEMNG', use: 'Promised delivery date (supplier reliability)' },
     { table: 'EKBE', desc: 'PO history', fields: 'EBELN, EBELP, VGABE, BWART, BUDAT, MENGE, BELNR', use: 'Actual goods-receipt date: actual lead time = EKBE-BUDAT - EKKO-BEDAT' },
     { table: 'VBAK', desc: 'Sales document header', fields: 'VBELN, AUART, VKORG, VTWEG, KUNNR, ERDAT', use: 'Order date and channel (3P / OEM / dealership)' },
     { table: 'VBAP', desc: 'Sales document item', fields: 'VBELN, POSNR, MATNR, WERKS, KWMENG, VRKME, NETWR, ABGRU', use: 'True customer demand, including what could not be supplied' },
+    { table: 'VBEP', desc: 'Sales schedule lines (optional)', fields: 'VBELN, POSNR, ETENR, EDATU, WMENG, BMENG', use: 'Requested vs confirmed quantity and date: service level against what the customer asked for' },
     { table: 'LIPS', desc: 'Delivery item', fields: 'VBELN, POSNR, VGBEL, VGPOS, MATNR, WERKS, LFIMG, WADAT_IST', use: 'Delivered quantity: fill rate and stockout incidents' },
+    { table: 'EINE', desc: 'Purchasing info record (optional)', fields: 'INFNR, EKORG, WERKS, APLFZ, NETPR, PEINH', use: 'Vendor-specific planned delivery time, a second baseline besides MARC-PLIFZ' },
     { table: 'LFA1', desc: 'Supplier master', fields: 'LIFNR, NAME1, LAND1, ORT01, KTOKK', use: 'Supplier name and origin (domestic / import)' },
     { table: 'KNA1', desc: 'Customer master', fields: 'KUNNR, NAME1, ORT01, KTOKD', use: 'Customer segmentation' },
     { table: 'T001W', desc: 'Plants', fields: 'WERKS, NAME1, ORT01', use: 'Branch / warehouse names' },

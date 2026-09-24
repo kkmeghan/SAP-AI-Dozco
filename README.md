@@ -10,14 +10,16 @@ It is a static web app with no server, no build step and no external services. E
 
 | View | Content |
 |---|---|
-| Overview | Backtest of SAP MRP vs AI (fill rate, average stock), the service-vs-working-capital curve, class comparison, key findings |
+| Overview | Backtest of SAP MRP vs AI, the service-vs-working-capital curve, where SAP MRP falls short, class comparison, segmentation |
+| Working capital | Release waterfall (dead, superseded, slow, excess, rebalance), holding cost, turns, aging, seasonal reorder levels |
+| Service & stockouts | Fill rate by sales channel with editable targets, trend, lost sales by group and part |
 | Recommendations | Per material × plant: `EISBE`, `MINBE`, `MABST`, `PLIFZ` today → recommended; filters; SAP change file (CSV for MM17) |
-| Part detail | Plain-language explanation, demand with stockouts, actual lead times vs plan, lead-time demand simulation, per-part backtest, forecast model competition |
+| Part explorer | Plain-language explanation, demand with stockouts, actual lead times vs plan, lead-time demand simulation, per-part backtest, forecast model competition |
 | Action center | Order now, transfers between plants, reorders, excess, dead stock, master-data fixes, all exportable |
 | Lead times | Supplier scorecard: planned vs actual lead time, variability, on-time rate |
 | SAP data & method | Tables and fields to extract, method, sample CSV download, upload of your own data |
 
-Policy presets: **same service, less capital** · **same capital, better service** · **service targets by ABC/XYZ class** · **custom budget**.
+Policy presets: **same service, less capital** · **same capital, more service** · **service targets by ABC/XYZ class and sales channel** · **custom budget**.
 
 See [`docs/SAP_Data_Requirements.md`](docs/SAP_Data_Requirements.md) for the client-facing data specification and method.
 
